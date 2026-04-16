@@ -1,29 +1,13 @@
-// --- CẤU HÌNH API ---
-// THAY THẾ ĐƯỜNG LINK NÀY BẰNG WEB APP URL CỦA BẠN
-const API_URL = 'https://script.google.com/macros/s/AKfycbzi4utii2QjIf6vc5kNM_qPmgdm7fBa5Xc03zhqHjFBNTXXjIgYPiW1Gjx1iiTyIw22/exec';
+// --- CẤU HÌNH SUPABASE ---
+const SUPABASE_URL = 'https://akgrmxazfgwbnpqupmor.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_L6pJkJPwbOoEDDbNXhL_PQ_oq2nm-rC';
+
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let currentUser = null;
 let currentAdminType = 'approvals';
 let currentReportTimeframe = 'this_week';
 let currentReportTab = 'tasks';
-
-// --- HÀM GỌI API (THAY THẾ CHO google.script.run) ---
-async function callAPI(action, params = {}) {
-  try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
-      body: JSON.stringify({ action: action, ...params })
-    });
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error("API Error:", error);
-    return { status: 'error', message: 'Lỗi kết nối máy chủ!' };
-  }
-}
 
 // --- TIỆN ÍCH UI ---
 function showLoading(show) { document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none'; }
@@ -49,22 +33,22 @@ function checkLoginStatus() {
 }
 
 async function handleLogin() {
-  const userInp = document.getElementById('login-username').value.trim();
+  const userInp = document.getElementById('login-username').value.trim().toLowerCase();
   const passInp = document.getElementById('login-password').value.trim();
   if (!userInp || !passInp) return showToast('Vui lòng nhập đủ thông tin!', 'error');
 
   showLoading(true);
-  const res = await callAPI('login', { username: userInp, password: passInp });
+  const { data, error } = await supabase.from('users').select('*').eq('username', userInp).eq('password', passInp).single();
   showLoading(false);
 
-  if (res.status === 'success') {
-    currentUser = res.data;
+  if (error || !data) {
+    showToast('Sai tên đăng nhập hoặc mật khẩu!', 'error');
+  } else {
+    currentUser = data;
     localStorage.setItem('housework_user', JSON.stringify(currentUser));
     document.getElementById('login-screen').style.display = 'none';
     showToast(`Chào mừng ${currentUser.name}!`);
     initApp();
-  } else {
-    showToast(res.message, 'error');
   }
 }
 
@@ -109,20 +93,42 @@ function switchTab(tabId) {
 // --- TRANG CHỦ ---
 async function loadHomeData() {
   showLoading(true);
-  const tasksRes = await callAPI('getTodayTasks', { username: currentUser.username });
   
-  if (tasksRes.status === 'success') {
-    renderTasks(tasksRes.data);
-  } else {
-    showToast(tasksRes.message, 'error');
+  // Lấy Tasks
+  const { data: tasksData } = await supabase.from('tasks').select('*');
+  const { data: logsData } = await supabase.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
+  
+  const today = new Date(); const dayOfWeek = today.getDay(); const weekOfMonth = Math.ceil(today.getDate() / 7);
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const weekStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-W${weekOfMonth}`;
+  
+  const tasks = [];
+  if (tasksData) {
+    tasksData.forEach(t => {
+      let isDueToday = false, periodId = '';
+      if (t.frequency === 'Daily') { isDueToday = true; periodId = todayStr; }
+      else if (t.frequency === 'Weekly' && t.schedule === dayOfWeek) { isDueToday = true; periodId = todayStr; }
+      else if (t.frequency === 'Monthly' && t.schedule === weekOfMonth) { isDueToday = true; periodId = weekStr; }
+      
+      if (isDueToday) {
+        let logStatus = 'Not Done', completedBy = '', completedByName = '';
+        if (logsData) {
+          const log = logsData.find(l => l.task_id === t.id && l.period_id === periodId);
+          if (log) {
+            logStatus = log.status; completedBy = log.username; completedByName = log.users?.name || log.username;
+          }
+        }
+        tasks.push({ id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, status: logStatus, completedByName, periodId });
+      }
+    });
   }
-  
-  const rewardsRes = await callAPI('getRewards');
-  showLoading(false);
 
-  if (rewardsRes.status === 'success') {
-    renderRewards(rewardsRes.data);
-  }
+  // Lấy Rewards
+  const { data: rewardsData } = await supabase.from('rewards').select('*');
+  
+  showLoading(false);
+  renderTasks(tasks);
+  renderRewards(rewardsData || []);
 }
 
 function renderTasks(tasks) {
@@ -139,8 +145,7 @@ function renderTasks(tasks) {
   let hasPendingTask = false;
   tasks.forEach(t => {
     if (t.status === 'Not Done') hasPendingTask = true;
-    let statusHtml = '';
-    let actionHtml = '';
+    let statusHtml = ''; let actionHtml = '';
 
     if (t.status === 'Not Done') {
       actionHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-full mt-3 py-2 rounded-xl bg-[#2D323E] text-white text-xs font-bold active-scale hover:bg-[#3E4451] transition-colors">Đã làm xong</button>`;
@@ -173,11 +178,18 @@ function renderTasks(tasks) {
 
 async function submitTask(taskId, periodId) {
   showLoading(true);
-  const res = await callAPI('submitTask', { username: currentUser.username, taskId: taskId, periodId: periodId });
+  // Kiểm tra xem đã có ai làm chưa
+  const { data: existing } = await supabase.from('task_logs').select('id').eq('task_id', taskId).eq('period_id', periodId).neq('status', 'Rejected');
+  if (existing && existing.length > 0) {
+    showLoading(false);
+    return showToast('Việc này đã có người làm!', 'error');
+  }
+
+  const { error } = await supabase.from('task_logs').insert([{ task_id: taskId, period_id: periodId, username: currentUser.username, status: 'Pending Approval' }]);
   showLoading(false);
   
-  showToast(res.message, res.status);
-  if (res.status === 'success') loadHomeData();
+  if (error) showToast('Lỗi: ' + error.message, 'error');
+  else { showToast('Đã gửi yêu cầu phê duyệt!'); loadHomeData(); }
 }
 
 function renderRewards(rewards) {
@@ -188,30 +200,35 @@ function renderRewards(rewards) {
     container.innerHTML += `
       <div class="bg-card border border-borderline rounded-2xl p-4 flex flex-col items-center text-center shadow-sm">
         <div class="w-12 h-12 rounded-full bg-[#2D323E] flex items-center justify-center mb-3"><i class="fa-solid fa-gift text-secondary text-xl"></i></div>
-        <h3 class="font-bold text-white text-sm mb-1 line-clamp-1">${r.name}</h3>
+        <h3 class="font-bold text-white text-sm mb-1 line-clamp-1">${r.reward_name}</h3>
         <div class="text-primary font-bold text-xs mb-3">${r.cost} pts</div>
-        <button onclick="redeemReward('${r.id}')" class="w-full py-2 rounded-xl text-xs font-bold active-scale transition-colors ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-[#2D323E] text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>Đổi quà</button>
+        <button onclick="redeemReward('${r.id}', ${r.cost}, '${r.reward_name}')" class="w-full py-2 rounded-xl text-xs font-bold active-scale transition-colors ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-[#2D323E] text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>Đổi quà</button>
       </div>
     `;
   });
 }
 
-async function redeemReward(rewardId) {
+async function redeemReward(rewardId, cost, name) {
   if(!confirm('Bạn chắc chắn muốn đổi quà này?')) return;
+  if (currentUser.points < cost) return showToast('Không đủ điểm!', 'error');
+
   showLoading(true);
-  const res = await callAPI('redeemReward', { username: currentUser.username, rewardId: rewardId });
+  const newPoints = currentUser.points - cost;
   
-  showToast(res.message, res.status);
-  if (res.status === 'success') {
-    const uRes = await callAPI('getUserData', { username: currentUser.username });
-    if(uRes.status === 'success') {
-      currentUser = uRes.data;
-      localStorage.setItem('housework_user', JSON.stringify(currentUser));
-      document.getElementById('user-points').innerText = currentUser.points;
-      loadHomeData();
-    }
-  }
+  // Cập nhật điểm
+  const { error: err1 } = await supabase.from('users').update({ points: newPoints }).eq('username', currentUser.username);
+  if (err1) { showLoading(false); return showToast('Lỗi: ' + err1.message, 'error'); }
+
+  // Ghi log giao dịch
+  await supabase.from('transactions').insert([{ username: currentUser.username, type: 'Spend', amount: cost, description: `Đổi quà: ${name}` }]);
+  
+  currentUser.points = newPoints;
+  localStorage.setItem('housework_user', JSON.stringify(currentUser));
+  document.getElementById('user-points').innerText = currentUser.points;
+  
   showLoading(false);
+  showToast(`Đổi thành công ${name}!`);
+  loadHomeData();
 }
 
 // --- BÁO CÁO NÂNG CAO ---
@@ -227,21 +244,7 @@ async function loadCustomReport() {
   const start = document.getElementById('custom-start').value;
   const end = document.getElementById('custom-end').value;
   if(!start || !end) return showToast('Vui lòng chọn đủ ngày!', 'error');
-  
-  currentReportTimeframe = 'custom';
-  document.getElementById('report-period').innerText = 'Đang tải dữ liệu...';
-  showLoading(true);
-
-  const res = await callAPI('getAdvancedReport', { username: currentUser.username, timeframe: 'custom', customStart: start, customEnd: end });
-  showLoading(false);
-
-  if (res.status === 'success') {
-    document.getElementById('report-period').innerText = `Thời gian: ${res.data.period}`;
-    renderLeaderboard(res.data.leaderboard);
-    renderTaskStats(res.data.taskStats);
-  } else {
-    showToast(res.message, 'error');
-  }
+  loadReportData(new Date(start), new Date(end + 'T23:59:59'));
 }
 
 function switchReportTab(tab) {
@@ -261,19 +264,102 @@ async function loadReport(timeframe) {
   document.getElementById(`filter-${timeframe}`).classList.remove('bg-card', 'text-muted');
   document.getElementById(`filter-${timeframe}`).classList.add('bg-primary', 'text-white');
 
+  const now = new Date();
+  let startDate = new Date(0), endDate = new Date('2099-01-01');
+  
+  if (timeframe === 'this_week') {
+    const day = now.getDay(); const diff = now.getDate() - day + (day == 0 ? -6:1);
+    startDate = new Date(now.setDate(diff)); startDate.setHours(0,0,0,0);
+    endDate = new Date(startDate); endDate.setDate(startDate.getDate() + 6); endDate.setHours(23,59,59,999);
+  } else if (timeframe === 'last_week') {
+    const day = now.getDay(); const diff = now.getDate() - day + (day == 0 ? -6:1) - 7;
+    startDate = new Date(now.setDate(diff)); startDate.setHours(0,0,0,0);
+    endDate = new Date(startDate); endDate.setDate(startDate.getDate() + 6); endDate.setHours(23,59,59,999);
+  } else if (timeframe === 'this_month') {
+    startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+  }
+  
+  loadReportData(startDate, endDate);
+}
+
+async function loadReportData(startDate, endDate) {
   document.getElementById('report-period').innerText = 'Đang tải dữ liệu...';
   showLoading(true);
 
-  const res = await callAPI('getAdvancedReport', { username: currentUser.username, timeframe: timeframe });
+  const { data: users } = await supabase.from('users').select('*');
+  const { data: trans } = await supabase.from('transactions').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
+  const { data: tasks } = await supabase.from('tasks').select('*');
+  const { data: logs } = await supabase.from('task_logs').select('*');
+
   showLoading(false);
 
-  if (res.status === 'success') {
-    document.getElementById('report-period').innerText = `Thời gian: ${res.data.period}`;
-    renderLeaderboard(res.data.leaderboard);
-    renderTaskStats(res.data.taskStats);
-  } else {
-    showToast(res.message, 'error');
+  // Tính Leaderboard
+  const reportData = {};
+  users.forEach(u => reportData[u.username] = { name: u.name, earned: 0, spent: 0, penalty: 0, currentPoints: u.points });
+  
+  if (trans) {
+    trans.forEach(t => {
+      if (reportData[t.username]) {
+        if (t.type === 'Earn') reportData[t.username].earned += t.amount;
+        if (t.type === 'Spend') reportData[t.username].spent += t.amount;
+        if (t.type === 'Penalty') reportData[t.username].penalty += t.amount;
+      }
+    });
   }
+  const leaderboard = Object.keys(reportData).map(k => ({ username: k, ...reportData[k] })).sort((a, b) => b.earned - a.earned);
+
+  // Tính Task Stats
+  const logMap = {}; 
+  if (logs) logs.forEach(l => { if (l.status !== 'Rejected') logMap[l.task_id + '_' + l.period_id] = true; });
+
+  let totalTasks = 0, completedTasks = 0, missedTasks = 0;
+  const taskBreakdown = {};
+  if (tasks) tasks.forEach(t => taskBreakdown[t.id] = { name: t.task_name, completed: 0, missed: 0 });
+
+  const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
+  const actualEndDate = endDate > todayEnd ? todayEnd : endDate;
+  const uniqueWeeks = new Set();
+
+  for (let d = new Date(startDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
+    const dayOfWeek = d.getDay();
+    const weekOfMonth = Math.ceil(d.getDate() / 7);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const weekStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-W${weekOfMonth}`;
+    uniqueWeeks.add(weekStr);
+
+    if (tasks) tasks.forEach(t => {
+      let isDue = false, pId = '';
+      if (t.frequency === 'Daily') { isDue = true; pId = dateStr; }
+      else if (t.frequency === 'Weekly' && t.schedule === dayOfWeek) { isDue = true; pId = dateStr; }
+      
+      if (isDue) {
+        totalTasks++;
+        if (logMap[t.id + '_' + pId]) { completedTasks++; taskBreakdown[t.id].completed++; } 
+        else { missedTasks++; taskBreakdown[t.id].missed++; }
+      }
+    });
+  }
+
+  uniqueWeeks.forEach(weekStr => {
+    const wNum = Number(weekStr.split('-W')[1]);
+    if (tasks) tasks.forEach(t => {
+      if (t.frequency === 'Monthly' && t.schedule === wNum) {
+        totalTasks++;
+        if (logMap[t.id + '_' + weekStr]) { completedTasks++; taskBreakdown[t.id].completed++; } 
+        else { missedTasks++; taskBreakdown[t.id].missed++; }
+      }
+    });
+  });
+
+  const taskStats = {
+    completed: completedTasks, missed: missedTasks,
+    breakdown: Object.values(taskBreakdown).filter(t => t.completed > 0 || t.missed > 0)
+  };
+
+  document.getElementById('report-period').innerText = `Thời gian: ${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`;
+  renderLeaderboard(leaderboard);
+  renderTaskStats(taskStats);
 }
 
 function renderTaskStats(taskStats) {
@@ -352,51 +438,70 @@ async function loadAdminData(type) {
     addBtn.style.display = 'block';
     addBtn.onclick = () => openModal(type);
     showLoading(true);
-    const res = await callAPI('adminGetData', { username: currentUser.username, type: type });
-    showLoading(false);
     
-    if (res.status === 'success') {
-      renderAdminList(type, res.data);
-    } else {
-      showToast(res.message, 'error');
+    let data = [];
+    if (type === 'users') {
+      const res = await supabase.from('users').select('*');
+      data = res.data || [];
+      if (currentUser.role === 'Moderator') data = data.filter(u => u.role === 'User');
+    } else if (type === 'tasks') {
+      const res = await supabase.from('tasks').select('*');
+      data = res.data || [];
+    } else if (type === 'rewards') {
+      const res = await supabase.from('rewards').select('*');
+      data = res.data || [];
     }
+    
+    showLoading(false);
+    renderAdminList(type, data);
   }
 }
 
 async function loadApprovals() {
   showLoading(true);
-  const res = await callAPI('getPendingApprovals', { username: currentUser.username });
+  const { data, error } = await supabase.from('task_logs').select('*, tasks(task_name, points), users(name)').eq('status', 'Pending Approval');
   showLoading(false);
   
   const container = document.getElementById('admin-list-container');
   container.innerHTML = '';
   
-  if (res.status !== 'success') return showToast(res.message, 'error');
-  if (res.data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Không có việc nào chờ duyệt.</div>';
+  if (error) return showToast(error.message, 'error');
+  if (!data || data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Không có việc nào chờ duyệt.</div>';
   
-  res.data.forEach(item => {
+  data.forEach(item => {
     container.innerHTML += `
       <div class="bg-card border border-borderline rounded-2xl p-4">
         <div class="flex justify-between items-start mb-2">
-          <div><h4 class="font-bold text-white text-sm">${item.taskName}</h4><div class="text-xs text-muted mt-1">Người làm: <span class="text-white">${item.completedByName}</span></div></div>
-          <div class="text-primary font-bold text-sm">+${item.points}</div>
+          <div><h4 class="font-bold text-white text-sm">${item.tasks?.task_name}</h4><div class="text-xs text-muted mt-1">Người làm: <span class="text-white">${item.users?.name || item.username}</span></div></div>
+          <div class="text-primary font-bold text-sm">+${item.tasks?.points}</div>
         </div>
         <div class="flex gap-2 mt-4">
-          <button onclick="approveTask(${item.row}, false)" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
-          <button onclick="approveTask(${item.row}, true)" class="flex-1 py-2 rounded-xl bg-success/10 text-success text-xs font-bold active-scale">Duyệt</button>
+          <button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
+          <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-success/10 text-success text-xs font-bold active-scale">Duyệt</button>
         </div>
       </div>
     `;
   });
 }
 
-async function approveTask(row, isApproved) {
+async function approveTask(logId, isApproved, username, points, taskName) {
   showLoading(true);
-  const res = await callAPI('approveTask', { username: currentUser.username, logRow: row, isApproved: isApproved });
-  showLoading(false);
   
-  showToast(res.message, res.status);
-  if(res.status === 'success') loadApprovals();
+  const status = isApproved ? 'Approved' : 'Rejected';
+  await supabase.from('task_logs').update({ status: status, approved_by: currentUser.username }).eq('id', logId);
+  
+  if (isApproved) {
+    // Lấy điểm hiện tại
+    const { data: uData } = await supabase.from('users').select('points').eq('username', username).single();
+    if (uData) {
+      await supabase.from('users').update({ points: uData.points + points }).eq('username', username);
+      await supabase.from('transactions').insert([{ username: username, type: 'Earn', amount: points, description: `Được duyệt: ${taskName}` }]);
+    }
+  }
+  
+  showLoading(false);
+  showToast(isApproved ? 'Đã duyệt và cộng điểm!' : 'Đã từ chối.');
+  loadApprovals();
 }
 
 function renderAdminList(type, data) {
@@ -405,17 +510,17 @@ function renderAdminList(type, data) {
   if (data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có dữ liệu.</div>';
   
   data.forEach(item => {
-    let title = '', subtitle = '';
-    if (type === 'users') { title = item.Name; subtitle = `${item.Username} - ${item.Role} - ${item.Points} pts`; }
-    else if (type === 'tasks') { title = item.TaskName; subtitle = `${item.Frequency} - +${item.Points} / -${item.Penalty}`; }
-    else if (type === 'rewards') { title = item.RewardName; subtitle = `${item.Cost} pts`; }
+    let title = '', subtitle = '', id = '';
+    if (type === 'users') { id = item.username; title = item.name; subtitle = `${item.username} - ${item.role} - ${item.points} pts`; }
+    else if (type === 'tasks') { id = item.id; title = item.task_name; subtitle = `${item.frequency} - +${item.points} / -${item.penalty}`; }
+    else if (type === 'rewards') { id = item.id; title = item.reward_name; subtitle = `${item.cost} pts`; }
     
     container.innerHTML += `
       <div class="bg-card border border-borderline rounded-2xl p-4 flex justify-between items-center">
         <div><h4 class="font-bold text-white text-sm">${title}</h4><div class="text-xs text-muted mt-1">${subtitle}</div></div>
         <div class="flex gap-2">
           <button onclick='openModal("${type}", ${JSON.stringify(item).replace(/'/g, "&#39;")})' class="w-8 h-8 rounded-lg bg-[#2D323E] text-white flex items-center justify-center active-scale"><i class="fa-solid fa-pen text-xs"></i></button>
-          <button onclick="deleteData('${type}', ${item._row})" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>
+          <button onclick="deleteData('${type}', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>
         </div>
       </div>
     `;
@@ -437,73 +542,82 @@ function openModal(type, item = null) {
     if (currentUser.role === 'Admin') {
       roleSelect = `
         <select id="inp-role" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
-          <option value="User" ${item && item.Role === 'User' ? 'selected' : ''}>User (Thành viên)</option>
-          <option value="Moderator" ${item && item.Role === 'Moderator' ? 'selected' : ''}>Moderator (Quản trị viên)</option>
-          <option value="Admin" ${item && item.Role === 'Admin' ? 'selected' : ''}>Admin (Chủ nhà)</option>
+          <option value="User" ${item && item.role === 'User' ? 'selected' : ''}>User (Thành viên)</option>
+          <option value="Moderator" ${item && item.role === 'Moderator' ? 'selected' : ''}>Moderator (Quản trị viên)</option>
+          <option value="Admin" ${item && item.role === 'Admin' ? 'selected' : ''}>Admin (Chủ nhà)</option>
         </select>
       `;
     } else {
-      roleSelect = `
-        <select id="inp-role" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
-          <option value="User" selected>User (Thành viên)</option>
-        </select>
-      `;
+      roleSelect = `<select id="inp-role" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3"><option value="User" selected>User (Thành viên)</option></select>`;
     }
 
     body.innerHTML = `
-      <input id="inp-username" type="text" placeholder="Tên đăng nhập (VD: bi)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.Username : ''}" ${item ? 'disabled' : ''}>
-      <input id="inp-name" type="text" placeholder="Tên hiển thị (VD: Bé Bi)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.Name : ''}">
-      <input id="inp-points" type="number" placeholder="Điểm hiện tại" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.Points : '0'}">
+      <input id="inp-username" type="text" placeholder="Tên đăng nhập (VD: bi)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.username : ''}" ${item ? 'disabled' : ''}>
+      <input id="inp-name" type="text" placeholder="Tên hiển thị (VD: Bé Bi)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.name : ''}">
+      <input id="inp-points" type="number" placeholder="Điểm hiện tại" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.points : '0'}">
       ${roleSelect}
-      <input id="inp-password" type="text" placeholder="Mật khẩu" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.Password : ''}">
+      <input id="inp-password" type="text" placeholder="Mật khẩu" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.password : ''}">
     `;
   } else if (type === 'tasks') {
     body.innerHTML = `
-      <input id="inp-tname" type="text" placeholder="Tên công việc" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.TaskName : ''}">
+      <input id="inp-tname" type="text" placeholder="Tên công việc" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.task_name : ''}">
       <select id="inp-tfreq" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
-        <option value="Daily" ${item && item.Frequency === 'Daily' ? 'selected' : ''}>Hàng ngày</option>
-        <option value="Weekly" ${item && item.Frequency === 'Weekly' ? 'selected' : ''}>Hàng tuần</option>
-        <option value="Monthly" ${item && item.Frequency === 'Monthly' ? 'selected' : ''}>Hàng tháng</option>
+        <option value="Daily" ${item && item.frequency === 'Daily' ? 'selected' : ''}>Hàng ngày</option>
+        <option value="Weekly" ${item && item.frequency === 'Weekly' ? 'selected' : ''}>Hàng tuần</option>
+        <option value="Monthly" ${item && item.frequency === 'Monthly' ? 'selected' : ''}>Hàng tháng</option>
       </select>
-      <input id="inp-tsched" type="number" placeholder="Lịch (Thứ 0-6 hoặc Tuần 1-4)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.Schedule : ''}">
-      <input id="inp-tpoints" type="number" placeholder="Điểm thưởng" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.Points : ''}">
-      <input id="inp-tpenalty" type="number" placeholder="Điểm phạt" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.Penalty : ''}">
+      <input id="inp-tsched" type="number" placeholder="Lịch (Thứ 0-6 hoặc Tuần 1-4)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.schedule : ''}">
+      <input id="inp-tpoints" type="number" placeholder="Điểm thưởng" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.points : ''}">
+      <input id="inp-tpenalty" type="number" placeholder="Điểm phạt" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.penalty : ''}">
     `;
   } else if (type === 'rewards') {
     body.innerHTML = `
-      <input id="inp-rname" type="text" placeholder="Tên phần thưởng" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.RewardName : ''}">
-      <input id="inp-rcost" type="number" placeholder="Giá (Điểm)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.Cost : ''}">
+      <input id="inp-rname" type="text" placeholder="Tên phần thưởng" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.reward_name : ''}">
+      <input id="inp-rcost" type="number" placeholder="Giá (Điểm)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.cost : ''}">
     `;
   }
   
   modal.classList.remove('hidden');
-  saveBtn.onclick = () => saveData(type, item ? item._row : null, item ? (type === 'tasks' ? item.TaskID : type === 'rewards' ? item.RewardID : null) : null);
+  saveBtn.onclick = () => saveData(type, item ? (type==='users' ? item.username : item.id) : null);
 }
 
 function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
 
-async function saveData(type, row, id) {
-  let rowData = [];
-  if (type === 'users') rowData = [document.getElementById('inp-username').value, document.getElementById('inp-name').value, document.getElementById('inp-points').value, document.getElementById('inp-role').value, document.getElementById('inp-password').value];
-  else if (type === 'tasks') rowData = [id || '', document.getElementById('inp-tname').value, document.getElementById('inp-tfreq').value, document.getElementById('inp-tsched').value, document.getElementById('inp-tpoints').value, document.getElementById('inp-tpenalty').value];
-  else if (type === 'rewards') rowData = [id || '', document.getElementById('inp-rname').value, document.getElementById('inp-rcost').value];
-  
+async function saveData(type, id) {
   showLoading(true);
-  const res = await callAPI('adminSaveData', { username: currentUser.username, type: type, row: row, rowData: rowData });
-  showLoading(false);
+  let error = null;
+
+  if (type === 'users') {
+    const data = { username: document.getElementById('inp-username').value.toLowerCase(), name: document.getElementById('inp-name').value, points: document.getElementById('inp-points').value, role: document.getElementById('inp-role').value, password: document.getElementById('inp-password').value };
+    if (id) { const res = await supabase.from('users').update(data).eq('username', id); error = res.error; } 
+    else { const res = await supabase.from('users').insert([data]); error = res.error; }
+  } else if (type === 'tasks') {
+    const data = { task_name: document.getElementById('inp-tname').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched').value || null, points: document.getElementById('inp-tpoints').value, penalty: document.getElementById('inp-tpenalty').value };
+    if (id) { const res = await supabase.from('tasks').update(data).eq('id', id); error = res.error; } 
+    else { const res = await supabase.from('tasks').insert([data]); error = res.error; }
+  } else if (type === 'rewards') {
+    const data = { reward_name: document.getElementById('inp-rname').value, cost: document.getElementById('inp-rcost').value };
+    if (id) { const res = await supabase.from('rewards').update(data).eq('id', id); error = res.error; } 
+    else { const res = await supabase.from('rewards').insert([data]); error = res.error; }
+  }
   
-  showToast(res.message, res.status);
-  if (res.status === 'success') { closeModal(); loadAdminData(type); }
+  showLoading(false);
+  if (error) showToast('Lỗi: ' + error.message, 'error');
+  else { showToast('Lưu thành công!'); closeModal(); loadAdminData(type); }
 }
 
-async function deleteData(type, row) {
+async function deleteData(type, id) {
   if (!confirm('Bạn có chắc chắn muốn xóa?')) return;
   showLoading(true);
-  const res = await callAPI('adminDeleteData', { username: currentUser.username, type: type, row: row });
-  showLoading(false);
   
-  showToast(res.message, res.status);
-  if (res.status === 'success') loadAdminData(type);
+  let error = null;
+  if (type === 'users') { const res = await supabase.from('users').delete().eq('username', id); error = res.error; }
+  else if (type === 'tasks') { const res = await supabase.from('tasks').delete().eq('id', id); error = res.error; }
+  else if (type === 'rewards') { const res = await supabase.from('rewards').delete().eq('id', id); error = res.error; }
+  
+  showLoading(false);
+  if (error) showToast('Lỗi: ' + error.message, 'error');
+  else { showToast('Xóa thành công!'); loadAdminData(type); }
 }
 
 window.onload = checkLoginStatus;
