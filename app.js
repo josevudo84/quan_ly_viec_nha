@@ -5,7 +5,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_L6pJkJPwbOoEDDbNXhL_PQ_oq2nm-rC';
 if (!window.supabase) {
   alert("Không thể tải thư viện Supabase. Vui lòng kiểm tra kết nối mạng hoặc tắt trình chặn quảng cáo (Adblock).");
 }
-const supabase = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 let currentUser = null;
 let currentAdminType = 'approvals';
@@ -36,7 +36,7 @@ function checkLoginStatus() {
 }
 
 async function handleLogin() {
-  if (!supabase) return showToast('Lỗi kết nối máy chủ Supabase!', 'error');
+  if (!supabaseClient) return showToast('Lỗi kết nối máy chủ Supabase!', 'error');
   
   const userInp = document.getElementById('login-username').value.trim().toLowerCase();
   const passInp = document.getElementById('login-password').value.trim();
@@ -44,7 +44,7 @@ async function handleLogin() {
 
   showLoading(true);
   try {
-    const { data, error } = await supabase.from('users').select('*').eq('username', userInp).eq('password', passInp);
+    const { data, error } = await supabaseClient.from('users').select('*').eq('username', userInp).eq('password', passInp);
     showLoading(false);
 
     if (error || !data || data.length === 0) {
@@ -107,8 +107,8 @@ async function loadHomeData() {
   showLoading(true);
   
   // Lấy Tasks
-  const { data: tasksData } = await supabase.from('tasks').select('*');
-  const { data: logsData } = await supabase.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
+  const { data: tasksData } = await supabaseClient.from('tasks').select('*');
+  const { data: logsData } = await supabaseClient.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
   
   const today = new Date(); const dayOfWeek = today.getDay(); const weekOfMonth = Math.ceil(today.getDate() / 7);
   const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
@@ -136,7 +136,7 @@ async function loadHomeData() {
   }
 
   // Lấy Rewards
-  const { data: rewardsData } = await supabase.from('rewards').select('*');
+  const { data: rewardsData } = await supabaseClient.from('rewards').select('*');
   
   showLoading(false);
   renderTasks(tasks);
@@ -191,13 +191,13 @@ function renderTasks(tasks) {
 async function submitTask(taskId, periodId) {
   showLoading(true);
   // Kiểm tra xem đã có ai làm chưa
-  const { data: existing } = await supabase.from('task_logs').select('id').eq('task_id', taskId).eq('period_id', periodId).neq('status', 'Rejected');
+  const { data: existing } = await supabaseClient.from('task_logs').select('id').eq('task_id', taskId).eq('period_id', periodId).neq('status', 'Rejected');
   if (existing && existing.length > 0) {
     showLoading(false);
     return showToast('Việc này đã có người làm!', 'error');
   }
 
-  const { error } = await supabase.from('task_logs').insert([{ task_id: taskId, period_id: periodId, username: currentUser.username, status: 'Pending Approval' }]);
+  const { error } = await supabaseClient.from('task_logs').insert([{ task_id: taskId, period_id: periodId, username: currentUser.username, status: 'Pending Approval' }]);
   showLoading(false);
   
   if (error) showToast('Lỗi: ' + error.message, 'error');
@@ -228,11 +228,11 @@ async function redeemReward(rewardId, cost, name) {
   const newPoints = currentUser.points - cost;
   
   // Cập nhật điểm
-  const { error: err1 } = await supabase.from('users').update({ points: newPoints }).eq('username', currentUser.username);
+  const { error: err1 } = await supabaseClient.from('users').update({ points: newPoints }).eq('username', currentUser.username);
   if (err1) { showLoading(false); return showToast('Lỗi: ' + err1.message, 'error'); }
 
   // Ghi log giao dịch
-  await supabase.from('transactions').insert([{ username: currentUser.username, type: 'Spend', amount: cost, description: `Đổi quà: ${name}` }]);
+  await supabaseClient.from('transactions').insert([{ username: currentUser.username, type: 'Spend', amount: cost, description: `Đổi quà: ${name}` }]);
   
   currentUser.points = newPoints;
   localStorage.setItem('housework_user', JSON.stringify(currentUser));
@@ -299,10 +299,10 @@ async function loadReportData(startDate, endDate) {
   document.getElementById('report-period').innerText = 'Đang tải dữ liệu...';
   showLoading(true);
 
-  const { data: users } = await supabase.from('users').select('*');
-  const { data: trans } = await supabase.from('transactions').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
-  const { data: tasks } = await supabase.from('tasks').select('*');
-  const { data: logs } = await supabase.from('task_logs').select('*');
+  const { data: users } = await supabaseClient.from('users').select('*');
+  const { data: trans } = await supabaseClient.from('transactions').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
+  const { data: tasks } = await supabaseClient.from('tasks').select('*');
+  const { data: logs } = await supabaseClient.from('task_logs').select('*');
 
   showLoading(false);
 
@@ -453,14 +453,14 @@ async function loadAdminData(type) {
     
     let data = [];
     if (type === 'users') {
-      const res = await supabase.from('users').select('*');
+      const res = await supabaseClient.from('users').select('*');
       data = res.data || [];
       if (currentUser.role === 'Moderator') data = data.filter(u => u.role === 'User');
     } else if (type === 'tasks') {
-      const res = await supabase.from('tasks').select('*');
+      const res = await supabaseClient.from('tasks').select('*');
       data = res.data || [];
     } else if (type === 'rewards') {
-      const res = await supabase.from('rewards').select('*');
+      const res = await supabaseClient.from('rewards').select('*');
       data = res.data || [];
     }
     
@@ -471,7 +471,7 @@ async function loadAdminData(type) {
 
 async function loadApprovals() {
   showLoading(true);
-  const { data, error } = await supabase.from('task_logs').select('*, tasks(task_name, points), users(name)').eq('status', 'Pending Approval');
+  const { data, error } = await supabaseClient.from('task_logs').select('*, tasks(task_name, points), users(name)').eq('status', 'Pending Approval');
   showLoading(false);
   
   const container = document.getElementById('admin-list-container');
@@ -500,14 +500,14 @@ async function approveTask(logId, isApproved, username, points, taskName) {
   showLoading(true);
   
   const status = isApproved ? 'Approved' : 'Rejected';
-  await supabase.from('task_logs').update({ status: status, approved_by: currentUser.username }).eq('id', logId);
+  await supabaseClient.from('task_logs').update({ status: status, approved_by: currentUser.username }).eq('id', logId);
   
   if (isApproved) {
     // Lấy điểm hiện tại
-    const { data: uData } = await supabase.from('users').select('points').eq('username', username).single();
+    const { data: uData } = await supabaseClient.from('users').select('points').eq('username', username).single();
     if (uData) {
-      await supabase.from('users').update({ points: uData.points + points }).eq('username', username);
-      await supabase.from('transactions').insert([{ username: username, type: 'Earn', amount: points, description: `Được duyệt: ${taskName}` }]);
+      await supabaseClient.from('users').update({ points: uData.points + points }).eq('username', username);
+      await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: points, description: `Được duyệt: ${taskName}` }]);
     }
   }
   
@@ -601,16 +601,16 @@ async function saveData(type, id) {
 
   if (type === 'users') {
     const data = { username: document.getElementById('inp-username').value.toLowerCase(), name: document.getElementById('inp-name').value, points: document.getElementById('inp-points').value, role: document.getElementById('inp-role').value, password: document.getElementById('inp-password').value };
-    if (id) { const res = await supabase.from('users').update(data).eq('username', id); error = res.error; } 
-    else { const res = await supabase.from('users').insert([data]); error = res.error; }
+    if (id) { const res = await supabaseClient.from('users').update(data).eq('username', id); error = res.error; } 
+    else { const res = await supabaseClient.from('users').insert([data]); error = res.error; }
   } else if (type === 'tasks') {
     const data = { task_name: document.getElementById('inp-tname').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched').value || null, points: document.getElementById('inp-tpoints').value, penalty: document.getElementById('inp-tpenalty').value };
-    if (id) { const res = await supabase.from('tasks').update(data).eq('id', id); error = res.error; } 
-    else { const res = await supabase.from('tasks').insert([data]); error = res.error; }
+    if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; } 
+    else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; }
   } else if (type === 'rewards') {
     const data = { reward_name: document.getElementById('inp-rname').value, cost: document.getElementById('inp-rcost').value };
-    if (id) { const res = await supabase.from('rewards').update(data).eq('id', id); error = res.error; } 
-    else { const res = await supabase.from('rewards').insert([data]); error = res.error; }
+    if (id) { const res = await supabaseClient.from('rewards').update(data).eq('id', id); error = res.error; } 
+    else { const res = await supabaseClient.from('rewards').insert([data]); error = res.error; }
   }
   
   showLoading(false);
@@ -623,9 +623,9 @@ async function deleteData(type, id) {
   showLoading(true);
   
   let error = null;
-  if (type === 'users') { const res = await supabase.from('users').delete().eq('username', id); error = res.error; }
-  else if (type === 'tasks') { const res = await supabase.from('tasks').delete().eq('id', id); error = res.error; }
-  else if (type === 'rewards') { const res = await supabase.from('rewards').delete().eq('id', id); error = res.error; }
+  if (type === 'users') { const res = await supabaseClient.from('users').delete().eq('username', id); error = res.error; }
+  else if (type === 'tasks') { const res = await supabaseClient.from('tasks').delete().eq('id', id); error = res.error; }
+  else if (type === 'rewards') { const res = await supabaseClient.from('rewards').delete().eq('id', id); error = res.error; }
   
   showLoading(false);
   if (error) showToast('Lỗi: ' + error.message, 'error');
