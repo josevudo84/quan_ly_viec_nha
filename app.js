@@ -23,6 +23,25 @@ function showToast(msg, type = 'success') {
   setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
 }
 
+// Bổ sung: Hàm cập nhật và đồng bộ điểm người dùng ở Topbar
+async function refreshUserPoints() {
+  if (!currentUser) return;
+  try {
+    const { data } = await supabaseClient.from('users').select('points').eq('username', currentUser.username).single();
+    if (data) {
+      const ptEl = document.getElementById('user-points');
+      if (currentUser.points !== data.points || ptEl.innerText === "0") {
+        currentUser.points = data.points;
+        localStorage.setItem('housework_user', JSON.stringify(currentUser));
+        ptEl.innerText = data.points;
+        
+        ptEl.classList.add('scale-150', 'text-success');
+        setTimeout(() => ptEl.classList.remove('scale-150', 'text-success'), 400);
+      }
+    }
+  } catch (e) { console.warn('Lỗi refresh điểm:', e); }
+}
+
 // --- ĐĂNG NHẬP ---
 function checkLoginStatus() {
   const savedUser = localStorage.getItem('housework_user');
@@ -40,7 +59,15 @@ async function handleLogin() {
   
   const userInp = document.getElementById('login-username').value.trim().toLowerCase();
   const passInp = document.getElementById('login-password').value.trim();
-  if (!userInp || !passInp) return showToast('Vui lòng nhập đủ thông tin!', 'error');
+  const errorBox = document.getElementById('login-error');
+  
+  errorBox.classList.add('hidden');
+
+  if (!userInp || !passInp) {
+    errorBox.innerText = 'Vui lòng nhập đủ tên đăng nhập và mật khẩu!';
+    errorBox.classList.remove('hidden');
+    return showToast('Vui lòng nhập đủ thông tin!', 'error');
+  }
 
   showLoading(true);
   try {
@@ -49,6 +76,8 @@ async function handleLogin() {
 
     if (error || !data || data.length === 0) {
       console.error("Lỗi đăng nhập:", error);
+      errorBox.innerText = 'Tên đăng nhập hoặc mật khẩu không chính xác!';
+      errorBox.classList.remove('hidden');
       showToast('Sai tên đăng nhập hoặc mật khẩu!', 'error');
     } else {
       currentUser = data[0];
@@ -60,6 +89,8 @@ async function handleLogin() {
   } catch (err) {
     showLoading(false);
     console.error(err);
+    errorBox.innerText = 'Có lỗi xảy ra kết nối mạng. Thử lại sau!';
+    errorBox.classList.remove('hidden');
     showToast('Có lỗi xảy ra khi đăng nhập!', 'error');
   }
 }
@@ -75,7 +106,7 @@ function handleLogout() {
 function initApp() {
   document.getElementById('user-name').innerText = currentUser.name;
   document.getElementById('user-role').innerText = currentUser.role || 'User';
-  document.getElementById('user-points').innerText = currentUser.points;
+  document.getElementById('user-points').innerText = currentUser.points; 
   document.getElementById('user-avatar').innerText = currentUser.name.charAt(0).toUpperCase();
 
   if (currentUser.role === 'Admin' || currentUser.role === 'Moderator') {
@@ -106,7 +137,8 @@ function switchTab(tabId) {
 async function loadHomeData() {
   showLoading(true);
   
-  // Lấy Tasks
+  await refreshUserPoints();
+  
   const { data: tasksData } = await supabaseClient.from('tasks').select('*');
   const { data: logsData } = await supabaseClient.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
   
@@ -126,18 +158,14 @@ async function loadHomeData() {
         let logStatus = 'Not Done', completedBy = '', completedByName = '';
         if (logsData) {
           const log = logsData.find(l => l.task_id === t.id && l.period_id === periodId);
-          if (log) {
-            logStatus = log.status; completedBy = log.username; completedByName = log.users?.name || log.username;
-          }
+          if (log) { logStatus = log.status; completedBy = log.username; completedByName = log.users?.name || log.username; }
         }
         tasks.push({ id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, status: logStatus, completedByName, periodId });
       }
     });
   }
 
-  // Lấy Rewards
   const { data: rewardsData } = await supabaseClient.from('rewards').select('*');
-  
   showLoading(false);
   renderTasks(tasks);
   renderRewards(rewardsData || []);
@@ -190,7 +218,6 @@ function renderTasks(tasks) {
 
 async function submitTask(taskId, periodId) {
   showLoading(true);
-  // Kiểm tra xem đã có ai làm chưa
   const { data: existing } = await supabaseClient.from('task_logs').select('id').eq('task_id', taskId).eq('period_id', periodId).neq('status', 'Rejected');
   if (existing && existing.length > 0) {
     showLoading(false);
@@ -220,6 +247,7 @@ function renderRewards(rewards) {
   });
 }
 
+// Bổ sung: Hàm xử lý Đổi Quà được thêm hiệu ứng pháo hoa Confetti và đồng bộ điểm
 async function redeemReward(rewardId, cost, name) {
   if(!confirm('Bạn chắc chắn muốn đổi quà này?')) return;
   if (currentUser.points < cost) return showToast('Không đủ điểm!', 'error');
@@ -227,19 +255,21 @@ async function redeemReward(rewardId, cost, name) {
   showLoading(true);
   const newPoints = currentUser.points - cost;
   
-  // Cập nhật điểm
   const { error: err1 } = await supabaseClient.from('users').update({ points: newPoints }).eq('username', currentUser.username);
   if (err1) { showLoading(false); return showToast('Lỗi: ' + err1.message, 'error'); }
 
-  // Ghi log giao dịch
   await supabaseClient.from('transactions').insert([{ username: currentUser.username, type: 'Spend', amount: cost, description: `Đổi quà: ${name}` }]);
   
-  currentUser.points = newPoints;
-  localStorage.setItem('housework_user', JSON.stringify(currentUser));
-  document.getElementById('user-points').innerText = currentUser.points;
+  refreshUserPoints(); 
   
   showLoading(false);
   showToast(`Đổi thành công ${name}!`);
+  
+  // Bắn pháo hoa 🎉
+  if (typeof confetti === 'function') {
+    confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, zIndex: 9999 });
+  }
+
   loadHomeData();
 }
 
@@ -295,6 +325,7 @@ async function loadReport(timeframe) {
   loadReportData(startDate, endDate);
 }
 
+// Bổ sung: Hàm báo cáo giới hạn logic thời gian bằng mốc thời gian bắt đầu có báo cáo (khởi tạo app)
 async function loadReportData(startDate, endDate) {
   document.getElementById('report-period').innerText = 'Đang tải dữ liệu...';
   showLoading(true);
@@ -305,6 +336,33 @@ async function loadReportData(startDate, endDate) {
   const { data: logs } = await supabaseClient.from('task_logs').select('*');
 
   showLoading(false);
+
+  const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
+  const actualEndDate = endDate > todayEnd ? todayEnd : endDate;
+  let actualStartDate = new Date(startDate);
+
+  // Tìm ngày có log đầu tiên trong bảng task_logs (ngày app bắt đầu chạy chính thức)
+  if (logs && logs.length > 0) {
+    let minDate = new Date(logs[0].created_at);
+    logs.forEach(l => {
+      const d = new Date(l.created_at);
+      if (d < minDate) minDate = d;
+    });
+    minDate.setHours(0,0,0,0);
+    // Nếu ngày yêu cầu nằm trước ngày xuất hiện log đầu tiên => chặn tại ngày có log đầu tiên
+    if (minDate > actualStartDate) {
+       actualStartDate = new Date(minDate);
+       startDate = new Date(actualStartDate);
+    }
+  } else {
+    // Không có log nào => Không tính số tác vụ bỏ lỡ trong quá khứ do chưa thiết lập app
+    actualStartDate = new Date(actualEndDate);
+    actualStartDate.setHours(0,0,0,0);
+    startDate = new Date(actualStartDate);
+  }
+
+  // Đảm bảo startDate k lớn hơn endDate
+  if (actualStartDate > actualEndDate) actualStartDate = new Date(actualEndDate);
 
   // Tính Leaderboard
   const reportData = {};
@@ -329,11 +387,9 @@ async function loadReportData(startDate, endDate) {
   const taskBreakdown = {};
   if (tasks) tasks.forEach(t => taskBreakdown[t.id] = { name: t.task_name, completed: 0, missed: 0 });
 
-  const todayEnd = new Date(); todayEnd.setHours(23,59,59,999);
-  const actualEndDate = endDate > todayEnd ? todayEnd : endDate;
   const uniqueWeeks = new Set();
 
-  for (let d = new Date(startDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
+  for (let d = new Date(actualStartDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
     const dayOfWeek = d.getDay();
     const weekOfMonth = Math.ceil(d.getDate() / 7);
     const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
@@ -503,13 +559,14 @@ async function approveTask(logId, isApproved, username, points, taskName) {
   await supabaseClient.from('task_logs').update({ status: status, approved_by: currentUser.username }).eq('id', logId);
   
   if (isApproved) {
-    // Lấy điểm hiện tại
     const { data: uData } = await supabaseClient.from('users').select('points').eq('username', username).single();
     if (uData) {
       await supabaseClient.from('users').update({ points: uData.points + points }).eq('username', username);
       await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: points, description: `Được duyệt: ${taskName}` }]);
     }
   }
+  
+  refreshUserPoints();
   
   showLoading(false);
   showToast(isApproved ? 'Đã duyệt và cộng điểm!' : 'Đã từ chối.');
