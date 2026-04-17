@@ -7,6 +7,8 @@ let currentAdminType = 'approvals';
 let currentReportTimeframe = 'this_week'; 
 let currentReportTab = 'tasks';
 
+const ICONS = ['fa-solid fa-clipboard-list', 'fa-solid fa-broom', 'fa-solid fa-trash', 'fa-solid fa-shirt', 'fa-solid fa-utensils', 'fa-solid fa-droplet', 'fa-solid fa-leaf', 'fa-solid fa-cart-shopping', 'fa-solid fa-book', 'fa-solid fa-sink', 'fa-solid fa-bath', 'fa-solid fa-dog', 'fa-solid fa-cat', 'fa-solid fa-box', 'fa-solid fa-gamepad', 'fa-solid fa-ticket', 'fa-solid fa-tv', 'fa-solid fa-mug-hot', 'fa-solid fa-star', 'fa-solid fa-gift', 'fa-solid fa-medal', 'fa-solid fa-motorcycle', 'fa-solid fa-car', 'fa-solid fa-money-bill'];
+
 function showLoading(show) { 
     document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none'; 
 }
@@ -216,7 +218,9 @@ async function loadHomeData() {
     const { data: logsData } = await supabaseClient.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
     
     const today = new Date(); 
-    const dayOfWeek = today.getDay(); 
+    const dayOfWeek = today.getDay(); // 0 = Sun, 1 = Mon
+    const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek; // 1 = Mon ... 7 = Sun
+    
     const weekOfMonth = Math.ceil(today.getDate() / 7);
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
     const weekStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-W${weekOfMonth}`;
@@ -226,7 +230,7 @@ async function loadHomeData() {
         tasksData.forEach(t => {
             let isDue = false, periodId = '';
             if (t.frequency === 'Daily') { isDue = true; periodId = todayStr; }
-            else if (t.frequency === 'Weekly' && t.schedule == dayOfWeek) { isDue = true; periodId = todayStr; }
+            else if (t.frequency === 'Weekly' && t.schedule == dayOfWeekAdjusted) { isDue = true; periodId = todayStr; }
             else if (t.frequency === 'Monthly' && t.schedule == weekOfMonth) { isDue = true; periodId = weekStr; }
             
             if (isDue) {
@@ -481,6 +485,7 @@ async function loadReportData(startDate, endDate) {
     const uniqueWeeks = new Set();
     for (let d = new Date(actualStartDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
         const dayOfWeek = d.getDay(); 
+        const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
         const weekOfMonth = Math.ceil(d.getDate() / 7); 
         const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; 
         const weekStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-W${weekOfMonth}`; 
@@ -489,7 +494,7 @@ async function loadReportData(startDate, endDate) {
         if (tasks) tasks.forEach(t => { 
             let isDue = false, pId = ''; 
             if (t.frequency === 'Daily') { isDue = true; pId = dateStr; } 
-            else if (t.frequency === 'Weekly' && t.schedule == dayOfWeek) { isDue = true; pId = dateStr; } 
+            else if (t.frequency === 'Weekly' && t.schedule == dayOfWeekAdjusted) { isDue = true; pId = dateStr; } 
             
             if (isDue) { 
                 if (logMap[t.id + '_' + pId]) { 
@@ -705,7 +710,6 @@ function renderAdminList(type, data) {
             prefixHTML = `<div class="w-8 h-8 rounded bg-[#2D323E] flex items-center justify-center"><i class="${item.icon || 'fa-solid fa-gift'} text-amber-500 text-xs"></i></div>`; 
         }
         
-        // Use a safe way to attach item data without breaking HTML quotes
         window[`editData_${id}`] = item;
         
         container.innerHTML += `
@@ -725,6 +729,49 @@ function renderAdminList(type, data) {
     });
 }
 
+function handleFreqChange() {
+    const freq = document.getElementById('inp-tfreq').value;
+    const schedContainer = document.getElementById('sched-container');
+    if (freq === 'Daily') {
+        schedContainer.innerHTML = '';
+    } else if (freq === 'Weekly') {
+        schedContainer.innerHTML = `
+            <select id="inp-tsched" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
+                <option value="1">Thứ 2</option>
+                <option value="2">Thứ 3</option>
+                <option value="3">Thứ 4</option>
+                <option value="4">Thứ 5</option>
+                <option value="5">Thứ 6</option>
+                <option value="6">Thứ 7</option>
+                <option value="7">Chủ Nhật</option>
+            </select>
+        `;
+    } else if (freq === 'Monthly') {
+        schedContainer.innerHTML = `
+            <select id="inp-tsched" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
+                <option value="1">Tuần 1</option>
+                <option value="2">Tuần 2</option>
+                <option value="3">Tuần 3</option>
+                <option value="4">Tuần 4</option>
+            </select>
+        `;
+    }
+}
+
+function selectIcon(iconClass) {
+    document.getElementById('inp-icon').value = iconClass;
+    document.querySelectorAll('.icon-option').forEach(el => {
+        el.classList.remove('bg-primary', 'text-white', 'ring-2', 'ring-primary');
+        el.classList.add('bg-[#2D323E]', 'text-[#9CA3AF]');
+    });
+    const formattedId = iconClass.replace(/ /g, '-');
+    const selectedEl = document.getElementById('icon-' + formattedId);
+    if(selectedEl) {
+        selectedEl.classList.remove('bg-[#2D323E]', 'text-[#9CA3AF]');
+        selectedEl.classList.add('bg-primary', 'text-white', 'ring-2', 'ring-primary');
+    }
+}
+
 function openModal(type, item = null) {
     const modal = document.getElementById('admin-modal'); 
     document.getElementById('modal-title').innerText = item ? 'Chỉnh sửa' : 'Thêm mới';
@@ -732,6 +779,17 @@ function openModal(type, item = null) {
     const saveBtn = document.getElementById('modal-save-btn'); 
     body.innerHTML = '';
     
+    let iconGridHtml = '';
+    if (type === 'tasks' || type === 'rewards') {
+        iconGridHtml = `
+            <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">CHỌN ICON</label>
+            <div class="grid grid-cols-6 gap-2 mb-4" id="icon-picker">
+                ${ICONS.map(i => `<div onclick="selectIcon('${i}')" id="icon-${i.replace(/ /g, '-')}" class="icon-option w-full aspect-square flex items-center justify-center rounded-xl bg-[#2D323E] cursor-pointer active-scale text-[#9CA3AF]"><i class="${i}"></i></div>`).join('')}
+            </div>
+            <input type="hidden" id="inp-icon" value="${item && item.icon ? item.icon : ICONS[0]}">
+        `;
+    }
+
     if (type === 'users') {
         let roleOpts = currentUser.role === 'Admin' ? 
             `<option value="User" ${item && item.role === 'User' ? 'selected' : ''}>User</option>
@@ -748,26 +806,42 @@ function openModal(type, item = null) {
             <input id="inp-avatar" type="text" placeholder="URL Hình Avatar" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item && item.avatar ? item.avatar : ''}">
         `;
     } else if (type === 'tasks') {
+        const isWeekly = item && item.frequency === 'Weekly';
+        const isMonthly = item && item.frequency === 'Monthly';
+        
         body.innerHTML = `
             <input id="inp-tname" type="text" placeholder="Tên việc" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.task_name : ''}">
-            <input id="inp-ticon" type="text" placeholder="Icon (VD: fa-solid fa-broom)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item && item.icon ? item.icon : 'fa-solid fa-clipboard-list'}">
-            <select id="inp-tfreq" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
+            ${iconGridHtml}
+            <select id="inp-tfreq" onchange="handleFreqChange()" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
                 <option value="Daily" ${item && item.frequency === 'Daily' ? 'selected' : ''}>Hàng ngày</option>
-                <option value="Weekly" ${item && item.frequency === 'Weekly' ? 'selected' : ''}>Hàng tuần</option>
-                <option value="Monthly" ${item && item.frequency === 'Monthly' ? 'selected' : ''}>Hàng tháng</option>
+                <option value="Weekly" ${isWeekly ? 'selected' : ''}>Hàng tuần</option>
+                <option value="Monthly" ${isMonthly ? 'selected' : ''}>Hàng tháng</option>
             </select>
-            <input id="inp-tsched" type="number" placeholder="T0-6 / Tuần 1-4" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.schedule : ''}">
-            <div class="grid grid-cols-2 gap-2">
+            <div id="sched-container"></div>
+            <div class="grid grid-cols-2 gap-2 mt-3">
                 <input id="inp-tpoints" type="number" placeholder="Thưởng pts" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.points : ''}">
                 <input id="inp-tpenalty" type="number" placeholder="Phạt pts" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.penalty : ''}">
             </div>
         `;
+        
+        setTimeout(() => {
+            handleFreqChange();
+            if (item && item.schedule && document.getElementById('inp-tsched')) {
+                document.getElementById('inp-tsched').value = item.schedule;
+            }
+            selectIcon(item && item.icon ? item.icon : ICONS[0]);
+        }, 10);
+
     } else if (type === 'rewards') {
         body.innerHTML = `
             <input id="inp-rname" type="text" placeholder="Tên quà" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.reward_name : ''}">
-            <input id="inp-ricon" type="text" placeholder="Icon (VD: fa-solid fa-gift)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item && item.icon ? item.icon : 'fa-solid fa-gift'}">
-            <input id="inp-rcost" type="number" placeholder="Giá pts" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.cost : ''}">
+            ${iconGridHtml}
+            <input id="inp-rcost" type="number" placeholder="Giá pts" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mt-3" value="${item ? item.cost : ''}">
         `;
+        
+        setTimeout(() => {
+            selectIcon(item && item.icon ? item.icon : ICONS[19]);
+        }, 10);
     }
     
     modal.classList.remove('hidden'); 
@@ -803,9 +877,9 @@ async function saveData(type, id) {
         else if (type === 'tasks') { 
             const data = { 
                 task_name: document.getElementById('inp-tname').value, 
-                icon: document.getElementById('inp-ticon').value, 
+                icon: document.getElementById('inp-icon').value, 
                 frequency: document.getElementById('inp-tfreq').value, 
-                schedule: document.getElementById('inp-tsched').value || null, 
+                schedule: document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null, 
                 points: document.getElementById('inp-tpoints').value, 
                 penalty: document.getElementById('inp-tpenalty').value || 0 
             }; 
@@ -820,7 +894,7 @@ async function saveData(type, id) {
         else if (type === 'rewards') { 
             const data = { 
                 reward_name: document.getElementById('inp-rname').value, 
-                icon: document.getElementById('inp-ricon').value, 
+                icon: document.getElementById('inp-icon').value, 
                 cost: document.getElementById('inp-rcost').value 
             }; 
             if (id) { 
