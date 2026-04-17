@@ -7,9 +7,8 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   
-  <!-- Thư viện Supabase -->
+  <!-- Thư viện Supabase và Pháo hoa -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- Thư viện hiệu ứng pháo hoa -->
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
   
   <style>
@@ -32,9 +31,8 @@
     .loader { border: 3px solid rgba(255,255,255,0.1); border-left-color: var(--primary); border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; }
     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     
-    .toast { transition: opacity 0.3s ease; }
+    .toast { transition: transform 0.3s ease, opacity 0.3s ease; }
     
-    /* Hide scrollbar for clean UI */
     ::-webkit-scrollbar { width: 0px; background: transparent; }
   </style>
 </head>
@@ -50,6 +48,24 @@
 
   <!-- TOAST CONTAINER -->
   <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-[90%] max-w-sm pointer-events-none"></div>
+
+  <!-- AVATAR EDIT MODAL -->
+  <div id="avatar-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col">
+      <div class="p-5 border-b border-borderline flex justify-between items-center bg-[#16181D]">
+        <h3 class="font-bold text-white text-lg">Đổi Ảnh Đại Diện</h3>
+        <button onclick="closeAvatarModal()" class="w-8 h-8 rounded-full bg-[#2D323E] text-muted flex items-center justify-center active-scale"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="p-5">
+        <label class="block text-xs font-bold text-muted mb-2 uppercase tracking-wider">Link ảnh (URL)</label>
+        <input id="inp-avatar-url" type="text" placeholder="Dán URL ảnh vào đây..." class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none">
+        <p class="text-[10px] text-muted mt-2">Gợi ý: Copy link ảnh từ Google Ảnh hoặc Facebook dán vào đây.</p>
+      </div>
+      <div class="p-5 border-t border-borderline bg-[#16181D]">
+        <button onclick="saveAvatar()" class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Cập nhật ảnh</button>
+      </div>
+    </div>
+  </div>
 
   <!-- LOGIN SCREEN -->
   <div id="login-screen" class="fixed inset-0 bg-[#0F1115] z-50 flex items-center justify-center p-6">
@@ -69,7 +85,6 @@
           <input type="password" id="login-password" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3.5 text-white text-sm outline-none focus:border-primary transition-colors" placeholder="Nhập mật khẩu...">
         </div>
         
-        <!-- Hiển thị lỗi rõ ràng hơn -->
         <div id="login-error" class="hidden text-red-500 text-xs font-medium text-center bg-red-500/10 py-2 rounded-xl mt-2 border border-red-500/20"></div>
 
         <button onclick="handleLogin()" class="w-full bg-primary text-white font-bold py-3.5 rounded-xl mt-4 active-scale shadow-lg shadow-primary/30 transition-transform">Đăng Nhập</button>
@@ -80,7 +95,12 @@
   <!-- HEADER -->
   <header class="bg-card border-b border-borderline sticky top-0 z-30 px-5 py-4 flex justify-between items-center">
     <div class="flex items-center gap-3">
-      <div id="user-avatar" class="w-10 h-10 rounded-full bg-gradient-to-tr from-primary to-blue-400 flex items-center justify-center text-white font-bold text-lg shadow-md">U</div>
+      <!-- Ảnh đại diện thay đổi được -->
+      <div id="user-avatar-container" onclick="openAvatarModal()" class="w-11 h-11 rounded-full bg-gradient-to-tr from-primary to-blue-400 flex items-center justify-center text-white font-bold text-lg shadow-md hover:scale-105 transition-transform cursor-pointer overflow-hidden border-2 border-transparent hover:border-primary">
+        <img id="user-avatar-img" class="w-full h-full object-cover hidden" alt="Avatar">
+        <span id="user-avatar-text">U</span>
+      </div>
+      
       <div>
         <div id="user-name" class="font-bold text-white text-sm">User Name</div>
         <div class="text-xs text-muted flex items-center gap-1"><span id="user-role" class="bg-[#2D323E] px-2 py-0.5 rounded text-[10px] font-medium">Role</span></div>
@@ -90,7 +110,7 @@
       <div class="text-right">
         <div class="text-[10px] text-muted uppercase font-bold tracking-wider mb-0.5">Điểm của bạn</div>
         <div class="text-primary font-black text-lg flex items-center justify-end gap-1">
-          <i class="fa-solid fa-coins text-yellow-500 text-sm"></i> 
+          <i class="fa-solid fa-coins text-yellow-500 text-sm animate-pulse"></i> 
           <span id="user-points" class="transition-all duration-300 transform inline-block">0</span>
         </div>
       </div>
@@ -103,11 +123,11 @@
     
     <!-- VIEW: HOME -->
     <section id="view-home" class="view-section">
-      <div id="reminder-box" class="bg-red-500/10 border border-red-500/20 rounded-2xl p-4 mb-6 flex items-start gap-3 hidden">
-        <i class="fa-solid fa-bell text-red-400 mt-0.5"></i>
+      <div id="reminder-box" class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 flex items-start gap-3 hidden">
+        <i class="fa-solid fa-bell text-amber-500 mt-0.5 animate-bounce"></i>
         <div>
-          <h4 class="text-red-400 font-bold text-sm">Nhắc nhở!</h4>
-          <p class="text-xs text-red-400/80 mt-1">Bạn có công việc chưa hoàn thành hôm nay. Hãy làm ngay để không bị trừ điểm nhé!</p>
+          <h4 class="text-amber-500 font-bold text-sm">Nhắc nhở xíu!</h4>
+          <p class="text-xs text-amber-500/80 mt-1">Hôm nay có việc cần làm kìa. Tranh thủ xử lý để ẵm trọn điểm nhé!</p>
         </div>
       </div>
 
@@ -134,7 +154,7 @@
         <button id="filter-custom" onclick="toggleCustomDate()" class="report-filter whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold bg-card text-muted border border-borderline active-scale"><i class="fa-solid fa-calendar-days mr-1"></i>Tùy chỉnh</button>
       </div>
 
-      <!-- Custom Date Picker -->
+      <!-- Custom Date -->
       <div id="custom-date-picker" class="bg-card border border-borderline rounded-2xl p-4 mb-4 hidden">
         <div class="flex gap-3 items-end">
           <div class="flex-1">
@@ -149,33 +169,38 @@
         </div>
       </div>
 
-      <div class="text-center mb-6"><span id="report-period" class="inline-block bg-[#2D323E] text-muted text-[11px] px-3 py-1 rounded-full font-medium">Đang tải...</span></div>
+      <div class="text-center mb-6"><span id="report-period" class="inline-block bg-[#2D323E] text-muted text-[11px] px-3 py-1 rounded-full font-medium shadow-inner">Đang tải...</span></div>
 
-      <!-- Report Tabs -->
+      <!-- Tabs -->
       <div class="flex border-b border-borderline mb-5">
-        <button id="rtab-tasks" onclick="switchReportTab('tasks')" class="flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary">Tình hình Công việc</button>
+        <button id="rtab-tasks" onclick="switchReportTab('tasks')" class="flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary">Tình hình Việc làm</button>
         <button id="rtab-leaderboard" onclick="switchReportTab('leaderboard')" class="flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent">Bảng Xếp Hạng</button>
       </div>
 
-      <!-- Tab Content: Tasks -->
+      <!-- Detail Report (3 Columns) -->
       <div id="report-content-tasks">
-        <div class="grid grid-cols-2 gap-3 mb-5">
-          <div class="bg-card border border-borderline rounded-2xl p-4 text-center">
-            <div class="text-success text-2xl mb-1"><i class="fa-solid fa-check-circle"></i></div>
+        <div class="grid grid-cols-3 gap-2 mb-5">
+          <div class="bg-card border border-borderline rounded-2xl p-3 text-center shadow-sm">
+            <div class="text-success text-xl mb-1"><i class="fa-solid fa-clipboard-check"></i></div>
             <div id="stat-completed" class="text-xl font-black text-white">0</div>
-            <div class="text-[10px] text-muted uppercase font-bold mt-1">Đã hoàn thành</div>
+            <div class="text-[9px] text-muted uppercase font-bold mt-1">Đã làm xong</div>
           </div>
-          <div class="bg-card border border-borderline rounded-2xl p-4 text-center">
-            <div class="text-red-400 text-2xl mb-1"><i class="fa-solid fa-times-circle"></i></div>
-            <div id="stat-missed" class="text-xl font-black text-white">0</div>
-            <div class="text-[10px] text-muted uppercase font-bold mt-1">Bỏ lỡ (Bị phạt)</div>
+          <div class="bg-card border border-borderline rounded-2xl p-3 text-center shadow-sm">
+            <div class="text-red-400 text-xl mb-1"><i class="fa-solid fa-heart-crack"></i></div>
+            <div id="stat-missed-pen" class="text-xl font-black text-white">0</div>
+            <div class="text-[9px] text-muted uppercase font-bold mt-1">Chưa làm (Có Phạt)</div>
+          </div>
+          <div class="bg-card border border-borderline rounded-2xl p-3 text-center shadow-sm">
+            <div class="text-amber-500 text-xl mb-1"><i class="fa-solid fa-clock-rotate-left"></i></div>
+            <div id="stat-missed-free" class="text-xl font-black text-white">0</div>
+            <div class="text-[9px] text-muted uppercase font-bold mt-1">Chưa làm (Thoải mái)</div>
           </div>
         </div>
-        <h3 class="font-bold text-white text-sm mb-3">Chi tiết từng việc</h3>
+        <h3 class="font-bold text-white text-sm mb-3">Chi tiết từng việc (Bao gồm chưa làm)</h3>
         <div id="stat-breakdown" class="space-y-3"></div>
       </div>
 
-      <!-- Tab Content: Leaderboard -->
+      <!-- Leaderboard -->
       <div id="report-content-leaderboard" class="space-y-3 hidden"></div>
     </section>
 

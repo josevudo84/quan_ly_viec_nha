@@ -3,7 +3,7 @@ const SUPABASE_URL = 'https://akgrmxazfgwbnpqupmor.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_L6pJkJPwbOoEDDbNXhL_PQ_oq2nm-rC';
 
 if (!window.supabase) {
-  alert("Không thể tải thư viện Supabase. Vui lòng kiểm tra kết nối mạng hoặc tắt trình chặn quảng cáo (Adblock).");
+  alert("Không thể tải thư viện Supabase. Vui lòng kiểm tra.");
 }
 const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
@@ -17,13 +17,20 @@ function showLoading(show) { document.getElementById('loading-overlay').style.di
 function showToast(msg, type = 'success') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
-  toast.className = `toast px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white flex items-center gap-2 ${type === 'success' ? 'bg-success' : 'bg-red-500'}`;
-  toast.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check' : 'fa-circle-exclamation'}"></i> ${msg}`;
+  toast.className = `toast px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 transform translate-y-[-20px] opacity-0 transition-all duration-300 ${type === 'success' ? 'bg-success text-white' : 'bg-red-500 text-white border-red-400'}`;
+  toast.innerHTML = `<i class="fa-solid ${type === 'success' ? 'fa-circle-check text-white' : 'fa-circle-exclamation text-white'}"></i> <span>${msg}</span>`;
+  
+  if (type === 'mega-success') {
+    toast.className = `toast px-5 py-4 rounded-xl shadow-2xl text-md font-bold flex items-center gap-3 transform translate-y-[-20px] opacity-0 transition-all duration-300 bg-gradient-to-r from-yellow-400 to-amber-500 text-white`;
+    toast.innerHTML = `<i class="fa-solid fa-star text-white text-xl animate-spin-slow"></i> <span>${msg}</span>`;
+  }
+  
   container.appendChild(toast);
-  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, 3000);
+  setTimeout(() => { toast.classList.remove('translate-y-[-20px]', 'opacity-0'); toast.classList.add('translate-y-0', 'opacity-100'); }, 10);
+  setTimeout(() => { toast.classList.remove('translate-y-0', 'opacity-100'); toast.classList.add('translate-y-[-20px]', 'opacity-0'); setTimeout(() => toast.remove(), 300); }, type==='mega-success'? 5000 : 3000);
 }
 
-// Bổ sung: Hàm cập nhật và đồng bộ điểm người dùng ở Topbar
+// Cập nhật điểm topbar
 async function refreshUserPoints() {
   if (!currentUser) return;
   try {
@@ -36,13 +43,28 @@ async function refreshUserPoints() {
         ptEl.innerText = data.points;
         
         ptEl.classList.add('scale-150', 'text-success');
-        setTimeout(() => ptEl.classList.remove('scale-150', 'text-success'), 400);
+        setTimeout(() => ptEl.classList.remove('scale-150', 'text-success'), 500);
       }
     }
   } catch (e) { console.warn('Lỗi refresh điểm:', e); }
 }
 
-// --- ĐĂNG NHẬP ---
+// Kích hoạt Realtime Notification cho việc tự động hiển thị thông báo khi User được Admin gắn 'Approved' (Yêu cầu bật Replication ở DB)
+function setupRealtimeListener() {
+  if(!currentUser || !supabaseClient) return;
+  
+  supabaseClient.channel('custom-user-channel')
+    .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'task_logs', filter: `username=eq.${currentUser.username}` }, 
+    (payload) => {
+      if (payload.new.status === 'Approved' && payload.old.status !== 'Approved') {
+         showToast(`Wao! Công việc vừa được duyệt. Bạn được cộng điểm!`, 'mega-success');
+         if (typeof confetti === 'function') confetti({ particleCount: 200, spread: 80, origin: { y: 0.3 }, zIndex: 9999 });
+         refreshUserPoints();
+      }
+    }).subscribe();
+}
+
+// --- ĐĂNG NHẬP & AVATAR ---
 function checkLoginStatus() {
   const savedUser = localStorage.getItem('housework_user');
   if (savedUser) {
@@ -55,7 +77,7 @@ function checkLoginStatus() {
 }
 
 async function handleLogin() {
-  if (!supabaseClient) return showToast('Lỗi kết nối máy chủ Supabase!', 'error');
+  if (!supabaseClient) return showToast('Lỗi kết nối máy chủ!', 'error');
   
   const userInp = document.getElementById('login-username').value.trim().toLowerCase();
   const passInp = document.getElementById('login-password').value.trim();
@@ -75,7 +97,6 @@ async function handleLogin() {
     showLoading(false);
 
     if (error || !data || data.length === 0) {
-      console.error("Lỗi đăng nhập:", error);
       errorBox.innerText = 'Tên đăng nhập hoặc mật khẩu không chính xác!';
       errorBox.classList.remove('hidden');
       showToast('Sai tên đăng nhập hoặc mật khẩu!', 'error');
@@ -88,26 +109,68 @@ async function handleLogin() {
     }
   } catch (err) {
     showLoading(false);
-    console.error(err);
     errorBox.innerText = 'Có lỗi xảy ra kết nối mạng. Thử lại sau!';
     errorBox.classList.remove('hidden');
-    showToast('Có lỗi xảy ra khi đăng nhập!', 'error');
   }
 }
 
 function handleLogout() {
   localStorage.removeItem('housework_user');
   currentUser = null;
+  supabaseClient.removeAllChannels(); // Clear realtime
   document.getElementById('login-username').value = '';
   document.getElementById('login-password').value = '';
   document.getElementById('login-screen').style.display = 'flex';
+}
+
+function updateAvatarHeader() {
+  const imgEL = document.getElementById('user-avatar-img');
+  const txtEL = document.getElementById('user-avatar-text');
+  
+  if (currentUser.avatar && currentUser.avatar.trim() !== '') {
+    imgEL.src = currentUser.avatar;
+    imgEL.classList.remove('hidden');
+    txtEL.classList.add('hidden');
+  } else {
+    imgEL.classList.add('hidden');
+    txtEL.classList.remove('hidden');
+    txtEL.innerText = currentUser.name.charAt(0).toUpperCase();
+  }
+}
+
+function openAvatarModal() {
+  document.getElementById('inp-avatar-url').value = currentUser.avatar || '';
+  document.getElementById('avatar-modal').classList.remove('hidden');
+  document.getElementById('avatar-modal').classList.add('flex');
+}
+
+function closeAvatarModal() {
+  document.getElementById('avatar-modal').classList.add('hidden');
+  document.getElementById('avatar-modal').classList.remove('flex');
+}
+
+async function saveAvatar() {
+  const url = document.getElementById('inp-avatar-url').value.trim();
+  showLoading(true);
+  const { error } = await supabaseClient.from('users').update({ avatar: url }).eq('username', currentUser.username);
+  showLoading(false);
+  
+  if(error) return showToast('Có lỗi: Bạn đã thêm cột "avatar" vào bảng users ở Supabase chưa?', 'error');
+  
+  currentUser.avatar = url;
+  localStorage.setItem('housework_user', JSON.stringify(currentUser));
+  updateAvatarHeader();
+  closeAvatarModal();
+  showToast('Cập nhật avatar thành công!');
 }
 
 function initApp() {
   document.getElementById('user-name').innerText = currentUser.name;
   document.getElementById('user-role').innerText = currentUser.role || 'User';
   document.getElementById('user-points').innerText = currentUser.points; 
-  document.getElementById('user-avatar').innerText = currentUser.name.charAt(0).toUpperCase();
+  
+  updateAvatarHeader();
+  setupRealtimeListener();
 
   if (currentUser.role === 'Admin' || currentUser.role === 'Moderator') {
     document.getElementById('nav-admin').classList.remove('hidden');
@@ -136,7 +199,6 @@ function switchTab(tabId) {
 // --- TRANG CHỦ ---
 async function loadHomeData() {
   showLoading(true);
-  
   await refreshUserPoints();
   
   const { data: tasksData } = await supabaseClient.from('tasks').select('*');
@@ -160,7 +222,7 @@ async function loadHomeData() {
           const log = logsData.find(l => l.task_id === t.id && l.period_id === periodId);
           if (log) { logStatus = log.status; completedBy = log.username; completedByName = log.users?.name || log.username; }
         }
-        tasks.push({ id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, status: logStatus, completedByName, periodId });
+        tasks.push({ id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, status: logStatus, completedByName, periodId, icon: t.icon || 'fa-solid fa-clipboard-list' });
       }
     });
   }
@@ -188,24 +250,28 @@ function renderTasks(tasks) {
     let statusHtml = ''; let actionHtml = '';
 
     if (t.status === 'Not Done') {
-      actionHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-full mt-3 py-2 rounded-xl bg-[#2D323E] text-white text-xs font-bold active-scale hover:bg-[#3E4451] transition-colors">Đã làm xong</button>`;
+      actionHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-full mt-3 py-2.5 rounded-xl bg-[#2D323E] text-white text-xs font-bold active-scale hover:bg-primary transition-colors hover:shadow-lg">Đã làm xong</button>`;
     } else if (t.status === 'Pending Approval') {
       statusHtml = `<span class="badge-pending"><i class="fa-solid fa-clock mr-1"></i>Chờ duyệt</span>`;
-      actionHtml = `<div class="mt-3 text-[11px] text-muted text-center">Người làm: <span class="text-white font-medium">${t.completedByName}</span></div>`;
+      actionHtml = `<div class="mt-3 text-[11px] text-muted text-center">Người nhận kèo: <span class="text-white font-medium">${t.completedByName}</span></div>`;
     } else if (t.status === 'Approved') {
       statusHtml = `<span class="badge-approved"><i class="fa-solid fa-check mr-1"></i>Hoàn thành</span>`;
-      actionHtml = `<div class="mt-3 text-[11px] text-muted text-center">Người làm: <span class="text-success font-medium">${t.completedByName}</span></div>`;
+      actionHtml = `<div class="mt-3 text-[11px] text-muted text-center">Hoàn thành bởi: <span class="text-success font-medium">${t.completedByName}</span></div>`;
     }
 
     container.innerHTML += `
-      <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
-        <div class="flex justify-between items-start mb-1">
-          <h3 class="font-bold text-white text-sm">${t.name}</h3>
+      <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm relative overflow-hidden">
+        ${t.status === 'Approved' ? '<div class="absolute inset-0 bg-success/5 pointer-events-none"></div>' : ''}
+        <div class="flex justify-between items-start mb-2 relative z-10">
+          <div class="flex items-center gap-3">
+             <div class="w-9 h-9 rounded-xl flex items-center justify-center bg-[#2D323E] text-[#9CA3AF]"><i class="${t.icon}"></i></div>
+             <h3 class="font-bold text-white text-sm max-w-[150px] leading-tight">${t.name}</h3>
+          </div>
           ${statusHtml}
         </div>
-        <div class="flex items-center gap-3 text-xs text-muted">
-          <span class="flex items-center gap-1"><i class="fa-solid fa-coins text-yellow-500"></i> +${t.points}</span>
-          <span class="flex items-center gap-1 text-red-400"><i class="fa-solid fa-arrow-trend-down"></i> -${t.penalty}</span>
+        <div class="flex items-center gap-3 text-xs text-muted mt-2 relative z-10">
+          <span class="flex items-center gap-1 bg-[#16181D] px-2 py-1 rounded border border-borderline"><i class="fa-solid fa-coins text-yellow-500"></i> <b class="text-white">+${t.points}</b></span>
+          <span class="flex items-center gap-1 bg-[#16181D] px-2 py-1 rounded border border-borderline text-red-400"><i class="fa-solid fa-arrow-trend-down"></i> <b class="text-red-400">-${t.penalty}</b></span>
         </div>
         ${actionHtml}
       </div>
@@ -221,14 +287,17 @@ async function submitTask(taskId, periodId) {
   const { data: existing } = await supabaseClient.from('task_logs').select('id').eq('task_id', taskId).eq('period_id', periodId).neq('status', 'Rejected');
   if (existing && existing.length > 0) {
     showLoading(false);
-    return showToast('Việc này đã có người làm!', 'error');
+    return showToast('Công việc này đã có người xí rồi!', 'error');
   }
 
   const { error } = await supabaseClient.from('task_logs').insert([{ task_id: taskId, period_id: periodId, username: currentUser.username, status: 'Pending Approval' }]);
   showLoading(false);
   
-  if (error) showToast('Lỗi: ' + error.message, 'error');
-  else { showToast('Đã gửi yêu cầu phê duyệt!'); loadHomeData(); }
+  if (error) showToast('Lỗi gửi: ' + error.message, 'error');
+  else { 
+    showToast('Đã gửi yêu cầu, đợi Duyệt nha!', 'success'); 
+    loadHomeData(); 
+  }
 }
 
 function renderRewards(rewards) {
@@ -236,38 +305,37 @@ function renderRewards(rewards) {
   container.innerHTML = '';
   rewards.forEach(r => {
     const canAfford = currentUser.points >= r.cost;
+    const rIcon = r.icon || 'fa-solid fa-gift text-amber-500';
     container.innerHTML += `
       <div class="bg-card border border-borderline rounded-2xl p-4 flex flex-col items-center text-center shadow-sm">
-        <div class="w-12 h-12 rounded-full bg-[#2D323E] flex items-center justify-center mb-3"><i class="fa-solid fa-gift text-secondary text-xl"></i></div>
+        <div class="w-12 h-12 rounded-full bg-[#2D323E] flex items-center justify-center mb-3 text-xl"><i class="${rIcon}"></i></div>
         <h3 class="font-bold text-white text-sm mb-1 line-clamp-1">${r.reward_name}</h3>
-        <div class="text-primary font-bold text-xs mb-3">${r.cost} pts</div>
-        <button onclick="redeemReward('${r.id}', ${r.cost}, '${r.reward_name}')" class="w-full py-2 rounded-xl text-xs font-bold active-scale transition-colors ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-[#2D323E] text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>Đổi quà</button>
+        <div class="text-primary font-bold text-xs mb-3 flex items-center gap-1"><i class="fa-solid fa-coins text-yellow-500"></i> ${r.cost}</div>
+        <button onclick="redeemReward('${r.id}', ${r.cost}, '${r.reward_name}')" class="w-full py-2 rounded-xl text-xs font-bold active-scale transition-all duration-300 ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105' : 'bg-[#2D323E] text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>Đổi quà</button>
       </div>
     `;
   });
 }
 
-// Bổ sung: Hàm xử lý Đổi Quà được thêm hiệu ứng pháo hoa Confetti và đồng bộ điểm
 async function redeemReward(rewardId, cost, name) {
-  if(!confirm('Bạn chắc chắn muốn đổi quà này?')) return;
-  if (currentUser.points < cost) return showToast('Không đủ điểm!', 'error');
+  if(!confirm(`Xác nhận dùng ${cost} điểm để đổi [ ${name} ] ?`)) return;
+  if (currentUser.points < cost) return showToast('Không đủ điểm rùi!', 'error');
 
   showLoading(true);
   const newPoints = currentUser.points - cost;
   
   const { error: err1 } = await supabaseClient.from('users').update({ points: newPoints }).eq('username', currentUser.username);
-  if (err1) { showLoading(false); return showToast('Lỗi: ' + err1.message, 'error'); }
+  if (err1) { showLoading(false); return showToast('Lỗi Database: ' + err1.message, 'error'); }
 
   await supabaseClient.from('transactions').insert([{ username: currentUser.username, type: 'Spend', amount: cost, description: `Đổi quà: ${name}` }]);
   
   refreshUserPoints(); 
   
   showLoading(false);
-  showToast(`Đổi thành công ${name}!`);
+  showToast(`Quá đỉnh! Nhớ đòi [ ${name} ] nha!`, 'mega-success');
   
-  // Bắn pháo hoa 🎉
   if (typeof confetti === 'function') {
-    confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, zIndex: 9999 });
+    confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, colors: ['#ffc107', '#28a745', '#007bff'], zIndex: 9999 });
   }
 
   loadHomeData();
@@ -325,7 +393,7 @@ async function loadReport(timeframe) {
   loadReportData(startDate, endDate);
 }
 
-// Bổ sung: Hàm báo cáo giới hạn logic thời gian bằng mốc thời gian bắt đầu có báo cáo (khởi tạo app)
+// Báo cáo chia ra: Hoàn thành / Chưa làm phạt / Chưa làm (Miễn)
 async function loadReportData(startDate, endDate) {
   document.getElementById('report-period').innerText = 'Đang tải dữ liệu...';
   showLoading(true);
@@ -333,7 +401,7 @@ async function loadReportData(startDate, endDate) {
   const { data: users } = await supabaseClient.from('users').select('*');
   const { data: trans } = await supabaseClient.from('transactions').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
   const { data: tasks } = await supabaseClient.from('tasks').select('*');
-  const { data: logs } = await supabaseClient.from('task_logs').select('*');
+  const { data: logs } = await supabaseClient.from('task_logs').select('*'); 
 
   showLoading(false);
 
@@ -341,7 +409,7 @@ async function loadReportData(startDate, endDate) {
   const actualEndDate = endDate > todayEnd ? todayEnd : endDate;
   let actualStartDate = new Date(startDate);
 
-  // Tìm ngày có log đầu tiên trong bảng task_logs (ngày app bắt đầu chạy chính thức)
+  // Giới hạn bắt đầu từ ngày có log khởi thủy
   if (logs && logs.length > 0) {
     let minDate = new Date(logs[0].created_at);
     logs.forEach(l => {
@@ -349,22 +417,19 @@ async function loadReportData(startDate, endDate) {
       if (d < minDate) minDate = d;
     });
     minDate.setHours(0,0,0,0);
-    // Nếu ngày yêu cầu nằm trước ngày xuất hiện log đầu tiên => chặn tại ngày có log đầu tiên
     if (minDate > actualStartDate) {
        actualStartDate = new Date(minDate);
        startDate = new Date(actualStartDate);
     }
   } else {
-    // Không có log nào => Không tính số tác vụ bỏ lỡ trong quá khứ do chưa thiết lập app
     actualStartDate = new Date(actualEndDate);
     actualStartDate.setHours(0,0,0,0);
     startDate = new Date(actualStartDate);
   }
 
-  // Đảm bảo startDate k lớn hơn endDate
   if (actualStartDate > actualEndDate) actualStartDate = new Date(actualEndDate);
 
-  // Tính Leaderboard
+  // Tính Leaderboard (tính gộp thông thường) 
   const reportData = {};
   users.forEach(u => reportData[u.username] = { name: u.name, earned: 0, spent: 0, penalty: 0, currentPoints: u.points });
   
@@ -379,16 +444,17 @@ async function loadReportData(startDate, endDate) {
   }
   const leaderboard = Object.keys(reportData).map(k => ({ username: k, ...reportData[k] })).sort((a, b) => b.earned - a.earned);
 
-  // Tính Task Stats
   const logMap = {}; 
   if (logs) logs.forEach(l => { if (l.status !== 'Rejected') logMap[l.task_id + '_' + l.period_id] = true; });
 
-  let totalTasks = 0, completedTasks = 0, missedTasks = 0;
+  let completedTasks = 0, missedPenaltyTasks = 0, missedFreeTasks = 0;
   const taskBreakdown = {};
-  if (tasks) tasks.forEach(t => taskBreakdown[t.id] = { name: t.task_name, completed: 0, missed: 0 });
+  // Bây giờ Breakdown gom 3 biến
+  if (tasks) tasks.forEach(t => taskBreakdown[t.id] = { name: t.task_name, completed: 0, missedPen: 0, missedFree: 0, penaltyAmount: t.penalty });
 
   const uniqueWeeks = new Set();
-
+  
+  // Quét vòng lặp từ ngày bắt đầu báo cáo -> Ngày cuối/Hôm nay
   for (let d = new Date(actualStartDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
     const dayOfWeek = d.getDay();
     const weekOfMonth = Math.ceil(d.getDate() / 7);
@@ -402,60 +468,86 @@ async function loadReportData(startDate, endDate) {
       else if (t.frequency === 'Weekly' && t.schedule === dayOfWeek) { isDue = true; pId = dateStr; }
       
       if (isDue) {
-        totalTasks++;
-        if (logMap[t.id + '_' + pId]) { completedTasks++; taskBreakdown[t.id].completed++; } 
-        else { missedTasks++; taskBreakdown[t.id].missed++; }
+        if (logMap[t.id + '_' + pId]) { 
+          completedTasks++; 
+          taskBreakdown[t.id].completed++; 
+        } else {
+          // Xếp loại "Miss"
+          if (t.penalty > 0) {
+            missedPenaltyTasks++;
+            taskBreakdown[t.id].missedPen++;
+          } else {
+            missedFreeTasks++;
+            taskBreakdown[t.id].missedFree++;
+          }
+        }
       }
     });
   }
 
+  // Quét vòng lặp Tháng tương tự
   uniqueWeeks.forEach(weekStr => {
     const wNum = Number(weekStr.split('-W')[1]);
     if (tasks) tasks.forEach(t => {
       if (t.frequency === 'Monthly' && t.schedule === wNum) {
-        totalTasks++;
-        if (logMap[t.id + '_' + weekStr]) { completedTasks++; taskBreakdown[t.id].completed++; } 
-        else { missedTasks++; taskBreakdown[t.id].missed++; }
+        if (logMap[t.id + '_' + weekStr]) { 
+          completedTasks++; 
+          taskBreakdown[t.id].completed++; 
+        } else { 
+          if (t.penalty > 0) {
+            missedPenaltyTasks++;
+            taskBreakdown[t.id].missedPen++;
+          } else {
+            missedFreeTasks++;
+            taskBreakdown[t.id].missedFree++;
+          }
+        }
       }
     });
   });
 
   const taskStats = {
-    completed: completedTasks, missed: missedTasks,
-    breakdown: Object.values(taskBreakdown).filter(t => t.completed > 0 || t.missed > 0)
+    completed: completedTasks, missedPen: missedPenaltyTasks, missedFree: missedFreeTasks,
+    breakdown: Object.values(taskBreakdown).filter(t => t.completed > 0 || t.missedPen > 0 || t.missedFree > 0)
   };
 
-  document.getElementById('report-period').innerText = `Thời gian: ${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`;
+  document.getElementById('report-period').innerText = `Kỳ này: ${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`;
   renderLeaderboard(leaderboard);
   renderTaskStats(taskStats);
 }
 
 function renderTaskStats(taskStats) {
   document.getElementById('stat-completed').innerText = taskStats.completed;
-  document.getElementById('stat-missed').innerText = taskStats.missed;
+  document.getElementById('stat-missed-pen').innerText = taskStats.missedPen;
+  document.getElementById('stat-missed-free').innerText = taskStats.missedFree;
 
   const container = document.getElementById('stat-breakdown');
   container.innerHTML = '';
   if(taskStats.breakdown.length === 0) {
-    container.innerHTML = '<div class="text-center text-muted text-xs py-4">Không có công việc nào trong thời gian này.</div>';
+    container.innerHTML = '<div class="text-center text-muted text-xs py-4">Chưa phát sinh việc nào.</div>';
     return;
   }
 
-  taskStats.breakdown.sort((a,b) => (b.completed + b.missed) - (a.completed + a.missed)).forEach(t => {
-    const total = t.completed + t.missed;
+  // Xếp thứ tự dựa theo tổng số việc
+  taskStats.breakdown.sort((a,b) => (b.completed + b.missedPen + b.missedFree) - (a.completed + a.missedPen + a.missedFree)).forEach(t => {
+    const total = t.completed + t.missedPen + t.missedFree;
     const percent = total === 0 ? 0 : Math.round((t.completed / total) * 100);
     container.innerHTML += `
-      <div class="bg-[#16181D] rounded-xl p-3 border border-borderline">
+      <div class="bg-[#16181D] rounded-xl p-3 border border-borderline relative overflow-hidden">
         <div class="flex justify-between items-center mb-2">
-          <span class="text-sm font-bold text-white">${t.name}</span>
-          <span class="text-xs text-muted">${percent}% hoàn thành</span>
+          <span class="text-xs font-bold text-white">${t.name}</span>
+          <span class="text-[10px] text-muted">${percent}% hoàn thành</span>
         </div>
         <div class="w-full bg-[#2D323E] rounded-full h-1.5 mb-2">
           <div class="bg-primary h-1.5 rounded-full" style="width: ${percent}%"></div>
         </div>
-        <div class="flex justify-between text-[10px]">
-          <span class="text-success"><i class="fa-solid fa-check mr-1"></i>${t.completed} lần xong</span>
-          <span class="text-red-400"><i class="fa-solid fa-xmark mr-1"></i>${t.missed} lần bỏ lỡ</span>
+        <div class="flex justify-between text-[10px] items-center">
+          <span class="text-success flex items-center gap-1"><i class="fa-solid fa-check"></i> Xong ${t.completed}</span>
+          <div class="flex gap-2">
+            ${t.missedPen > 0 ? `<span class="text-red-400 bg-red-500/10 px-1 rounded flex items-center gap-1"><i class="fa-solid fa-heart-crack"></i> Phạt ${t.missedPen}</span>` : ''}
+            ${t.missedFree > 0 ? `<span class="text-amber-500 bg-amber-500/10 px-1 rounded flex items-center gap-1"><i class="fa-solid fa-clock-rotate-left"></i> Miễn ${t.missedFree}</span>` : ''}
+            ${(t.missedPen === 0 && t.missedFree === 0) ? `<span class="text-muted"><i class="fa-solid fa-star"></i> Không bỏ lỡ</span>` : ''}
+          </div>
         </div>
       </div>
     `;
@@ -469,20 +561,20 @@ function renderLeaderboard(data) {
 
   data.forEach((user, index) => {
     let rankIcon = `<div class="w-6 h-6 rounded-full bg-[#2D323E] text-muted flex items-center justify-center text-xs font-bold">${index + 1}</div>`;
-    if (index === 0) rankIcon = `<i class="fa-solid fa-crown text-yellow-400 text-xl"></i>`;
-    else if (index === 1) rankIcon = `<i class="fa-solid fa-medal text-gray-300 text-xl"></i>`;
-    else if (index === 2) rankIcon = `<i class="fa-solid fa-medal text-amber-600 text-xl"></i>`;
+    if (index === 0) rankIcon = `<i class="fa-solid fa-crown text-yellow-500 text-xl drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]"></i>`;
+    else if (index === 1) rankIcon = `<i class="fa-solid fa-medal text-gray-300 text-lg"></i>`;
+    else if (index === 2) rankIcon = `<i class="fa-solid fa-medal text-amber-600 text-lg"></i>`;
 
     container.innerHTML += `
-      <div class="bg-card border border-borderline rounded-2xl p-4 flex items-center gap-4">
+      <div class="bg-card border border-borderline rounded-2xl p-4 flex items-center gap-4 hover:bg-[#1a1d24] transition-colors">
         <div class="w-8 flex justify-center">${rankIcon}</div>
         <div class="flex-1">
           <div class="font-bold text-white text-sm">${user.name}</div>
           <div class="text-[11px] text-muted">Hiện có: <span class="text-primary font-bold">${user.currentPoints}</span> pts</div>
         </div>
         <div class="text-right space-y-1">
-          <div class="text-xs text-success font-medium"><i class="fa-solid fa-arrow-trend-up mr-1"></i>+${user.earned}</div>
-          <div class="text-[10px] text-red-400"><i class="fa-solid fa-arrow-trend-down mr-1"></i>-${user.penalty}</div>
+          <div class="text-xs text-success font-medium"><i class="fa-solid fa-arrow-trend-up mr-1 text-[10px]"></i>+${user.earned}</div>
+          <div class="text-[10px] text-red-400"><i class="fa-solid fa-arrow-trend-down mr-1 text-[10px]"></i>-${user.penalty}</div>
         </div>
       </div>
     `;
@@ -527,31 +619,35 @@ async function loadAdminData(type) {
 
 async function loadApprovals() {
   showLoading(true);
-  const { data, error } = await supabaseClient.from('task_logs').select('*, tasks(task_name, points), users(name)').eq('status', 'Pending Approval');
+  const { data, error } = await supabaseClient.from('task_logs').select('*, tasks(task_name, points, icon), users(name)').eq('status', 'Pending Approval');
   showLoading(false);
   
   const container = document.getElementById('admin-list-container');
   container.innerHTML = '';
   
   if (error) return showToast(error.message, 'error');
-  if (!data || data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Không có việc nào chờ duyệt.</div>';
+  if (!data || data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Quá mượt! Không có việc nào chờ duyệt.</div>';
   
   data.forEach(item => {
     container.innerHTML += `
-      <div class="bg-card border border-borderline rounded-2xl p-4">
+      <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
         <div class="flex justify-between items-start mb-2">
-          <div><h4 class="font-bold text-white text-sm">${item.tasks?.task_name}</h4><div class="text-xs text-muted mt-1">Người làm: <span class="text-white">${item.users?.name || item.username}</span></div></div>
-          <div class="text-primary font-bold text-sm">+${item.tasks?.points}</div>
+          <div class="flex items-start gap-2">
+             <i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'} text-[#9CA3AF] mt-1 text-sm bg-[#2D323E] w-6 h-6 rounded flex items-center justify-center"></i>
+            <div><h4 class="font-bold text-white text-sm max-w-[150px] leading-tight">${item.tasks?.task_name}</h4><div class="text-[11px] text-muted mt-1">Người làm: <span class="text-white">${item.users?.name || item.username}</span></div></div>
+          </div>
+          <div class="text-primary font-bold text-sm bg-[#16181D] px-2 py-1 rounded">+${item.tasks?.points}</div>
         </div>
         <div class="flex gap-2 mt-4">
-          <button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
-          <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-success/10 text-success text-xs font-bold active-scale">Duyệt</button>
+          <button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale hover:bg-red-500 hover:text-white transition-colors">Từ chối</button>
+          <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-success text-white text-xs font-bold active-scale shadow-lg shadow-success/30">Duyệt & +Điểm</button>
         </div>
       </div>
     `;
   });
 }
 
+// Bổ sung: Hàm cập nhật phê duyệt task logic được điều chỉnh lại xíu 
 async function approveTask(logId, isApproved, username, points, taskName) {
   showLoading(true);
   
@@ -561,6 +657,7 @@ async function approveTask(logId, isApproved, username, points, taskName) {
   if (isApproved) {
     const { data: uData } = await supabaseClient.from('users').select('points').eq('username', username).single();
     if (uData) {
+      // Cập nhật điểm cho user
       await supabaseClient.from('users').update({ points: uData.points + points }).eq('username', username);
       await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: points, description: `Được duyệt: ${taskName}` }]);
     }
@@ -569,34 +666,46 @@ async function approveTask(logId, isApproved, username, points, taskName) {
   refreshUserPoints();
   
   showLoading(false);
-  showToast(isApproved ? 'Đã duyệt và cộng điểm!' : 'Đã từ chối.');
+  showToast(isApproved ? 'Đã thông báo cộng điểm tới user!' : 'Đã từ chối.', isApproved ? 'success' : 'error');
   loadApprovals();
 }
 
 function renderAdminList(type, data) {
   const container = document.getElementById('admin-list-container');
   container.innerHTML = '';
-  if (data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có dữ liệu.</div>';
+  if (data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa thiết lập dữ liệu.</div>';
   
   data.forEach(item => {
-    let title = '', subtitle = '', id = '';
-    if (type === 'users') { id = item.username; title = item.name; subtitle = `${item.username} - ${item.role} - ${item.points} pts`; }
-    else if (type === 'tasks') { id = item.id; title = item.task_name; subtitle = `${item.frequency} - +${item.points} / -${item.penalty}`; }
-    else if (type === 'rewards') { id = item.id; title = item.reward_name; subtitle = `${item.cost} pts`; }
+    let title = '', subtitle = '', id = '', prefixHTML = '';
+    if (type === 'users') { 
+        id = item.username; title = item.name; subtitle = `${item.username} - ${item.role} - <span class="text-yellow-500">${item.points} pts</span>`;
+        prefixHTML = `<div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white overflow-hidden bg-[#2D323E]">${item.avatar ? `<img src="${item.avatar}" class="w-full h-full object-cover">` : item.name.charAt(0).toUpperCase()}</div>`;
+    }
+    else if (type === 'tasks') { 
+        id = item.id; title = item.task_name; subtitle = `${item.frequency} | Thuộc tính: <span class="text-primary">+${item.points}</span> / <span class="text-red-400">-${item.penalty}</span>`; 
+        prefixHTML = `<div class="w-8 h-8 rounded bg-[#2D323E] flex items-center justify-center"><i class="${item.icon || 'fa-solid fa-clipboard-list'} text-[#9CA3AF] text-xs"></i></div>`;
+    }
+    else if (type === 'rewards') { 
+        id = item.id; title = item.reward_name; subtitle = `<span class="text-yellow-500">${item.cost} pts</span>`; 
+        prefixHTML = `<div class="w-8 h-8 rounded bg-[#2D323E] flex items-center justify-center"><i class="${item.icon || 'fa-solid fa-gift'} text-amber-500 text-xs"></i></div>`;
+    }
     
     container.innerHTML += `
-      <div class="bg-card border border-borderline rounded-2xl p-4 flex justify-between items-center">
-        <div><h4 class="font-bold text-white text-sm">${title}</h4><div class="text-xs text-muted mt-1">${subtitle}</div></div>
+      <div class="bg-card border border-borderline rounded-2xl p-4 flex justify-between items-center shadow-sm">
+        <div class="flex gap-3 items-center">
+            ${prefixHTML}
+            <div><h4 class="font-bold text-white text-sm">${title}</h4><div class="text-[10px] text-muted mt-0.5">${subtitle}</div></div>
+        </div>
         <div class="flex gap-2">
           <button onclick='openModal("${type}", ${JSON.stringify(item).replace(/'/g, "&#39;")})' class="w-8 h-8 rounded-lg bg-[#2D323E] text-white flex items-center justify-center active-scale"><i class="fa-solid fa-pen text-xs"></i></button>
-          <button onclick="deleteData('${type}', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>
+          <button onclick="deleteData('${type}', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center active-scale hover:bg-red-500 hover:text-white transition-colors"><i class="fa-solid fa-trash text-xs"></i></button>
         </div>
       </div>
     `;
   });
 }
 
-// --- MODAL CRUD ---
+// Bổ sung: Thêm dòng input nhập chuỗi iCon class từ FontAwesome vào modal
 function openModal(type, item = null) {
   const modal = document.getElementById('admin-modal');
   const title = document.getElementById('modal-title');
@@ -611,82 +720,4 @@ function openModal(type, item = null) {
     if (currentUser.role === 'Admin') {
       roleSelect = `
         <select id="inp-role" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
-          <option value="User" ${item && item.role === 'User' ? 'selected' : ''}>User (Thành viên)</option>
-          <option value="Moderator" ${item && item.role === 'Moderator' ? 'selected' : ''}>Moderator (Quản trị viên)</option>
-          <option value="Admin" ${item && item.role === 'Admin' ? 'selected' : ''}>Admin (Chủ nhà)</option>
-        </select>
-      `;
-    } else {
-      roleSelect = `<select id="inp-role" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3"><option value="User" selected>User (Thành viên)</option></select>`;
-    }
-
-    body.innerHTML = `
-      <input id="inp-username" type="text" placeholder="Tên đăng nhập (VD: bi)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.username : ''}" ${item ? 'disabled' : ''}>
-      <input id="inp-name" type="text" placeholder="Tên hiển thị (VD: Bé Bi)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.name : ''}">
-      <input id="inp-points" type="number" placeholder="Điểm hiện tại" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.points : '0'}">
-      ${roleSelect}
-      <input id="inp-password" type="text" placeholder="Mật khẩu" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.password : ''}">
-    `;
-  } else if (type === 'tasks') {
-    body.innerHTML = `
-      <input id="inp-tname" type="text" placeholder="Tên công việc" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.task_name : ''}">
-      <select id="inp-tfreq" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
-        <option value="Daily" ${item && item.frequency === 'Daily' ? 'selected' : ''}>Hàng ngày</option>
-        <option value="Weekly" ${item && item.frequency === 'Weekly' ? 'selected' : ''}>Hàng tuần</option>
-        <option value="Monthly" ${item && item.frequency === 'Monthly' ? 'selected' : ''}>Hàng tháng</option>
-      </select>
-      <input id="inp-tsched" type="number" placeholder="Lịch (Thứ 0-6 hoặc Tuần 1-4)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.schedule : ''}">
-      <input id="inp-tpoints" type="number" placeholder="Điểm thưởng" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.points : ''}">
-      <input id="inp-tpenalty" type="number" placeholder="Điểm phạt" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.penalty : ''}">
-    `;
-  } else if (type === 'rewards') {
-    body.innerHTML = `
-      <input id="inp-rname" type="text" placeholder="Tên phần thưởng" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.reward_name : ''}">
-      <input id="inp-rcost" type="number" placeholder="Giá (Điểm)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.cost : ''}">
-    `;
-  }
-  
-  modal.classList.remove('hidden');
-  saveBtn.onclick = () => saveData(type, item ? (type==='users' ? item.username : item.id) : null);
-}
-
-function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
-
-async function saveData(type, id) {
-  showLoading(true);
-  let error = null;
-
-  if (type === 'users') {
-    const data = { username: document.getElementById('inp-username').value.toLowerCase(), name: document.getElementById('inp-name').value, points: document.getElementById('inp-points').value, role: document.getElementById('inp-role').value, password: document.getElementById('inp-password').value };
-    if (id) { const res = await supabaseClient.from('users').update(data).eq('username', id); error = res.error; } 
-    else { const res = await supabaseClient.from('users').insert([data]); error = res.error; }
-  } else if (type === 'tasks') {
-    const data = { task_name: document.getElementById('inp-tname').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched').value || null, points: document.getElementById('inp-tpoints').value, penalty: document.getElementById('inp-tpenalty').value };
-    if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; } 
-    else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; }
-  } else if (type === 'rewards') {
-    const data = { reward_name: document.getElementById('inp-rname').value, cost: document.getElementById('inp-rcost').value };
-    if (id) { const res = await supabaseClient.from('rewards').update(data).eq('id', id); error = res.error; } 
-    else { const res = await supabaseClient.from('rewards').insert([data]); error = res.error; }
-  }
-  
-  showLoading(false);
-  if (error) showToast('Lỗi: ' + error.message, 'error');
-  else { showToast('Lưu thành công!'); closeModal(); loadAdminData(type); }
-}
-
-async function deleteData(type, id) {
-  if (!confirm('Bạn có chắc chắn muốn xóa?')) return;
-  showLoading(true);
-  
-  let error = null;
-  if (type === 'users') { const res = await supabaseClient.from('users').delete().eq('username', id); error = res.error; }
-  else if (type === 'tasks') { const res = await supabaseClient.from('tasks').delete().eq('id', id); error = res.error; }
-  else if (type === 'rewards') { const res = await supabaseClient.from('rewards').delete().eq('id', id); error = res.error; }
-  
-  showLoading(false);
-  if (error) showToast('Lỗi: ' + error.message, 'error');
-  else { showToast('Xóa thành công!'); loadAdminData(type); }
-}
-
-window.onload = checkLoginStatus;
+          <option value="User" ${item && item.role === '
