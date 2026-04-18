@@ -201,8 +201,8 @@ function initApp() {
 function switchTab(tabId) {
     document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden')); 
     document.getElementById(`view-${tabId}`).classList.remove('hidden');
-    document.querySelectorAll('.nav-btn').forEach(el => { el.classList.remove('text-primary'); el.classList.add('text-[#4B5563]'); });
-    document.getElementById(`nav-${tabId}`).classList.remove('text-[#4B5563]'); 
+    document.querySelectorAll('.nav-btn').forEach(el => { el.classList.remove('text-primary'); el.classList.add('text-muted'); });
+    document.getElementById(`nav-${tabId}`).classList.remove('text-muted'); 
     document.getElementById(`nav-${tabId}`).classList.add('text-primary');
     
     if (tabId === 'home') loadHomeData(); 
@@ -218,8 +218,8 @@ async function loadHomeData() {
     const { data: logsData } = await supabaseClient.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
     
     const today = new Date(); 
-    const dayOfWeek = today.getDay(); // 0 = Sun, 1 = Mon
-    const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek; // 1 = Mon ... 7 = Sun
+    const dayOfWeek = today.getDay(); 
+    const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek; 
     
     const weekOfMonth = Math.ceil(today.getDate() / 7);
     const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
@@ -280,10 +280,10 @@ function renderTasks(tasks) {
         let statHtml = '', actHtml = '';
         
         if (t.status === 'Not Done') { 
-            actHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-full mt-3 py-2.5 rounded-xl bg-[#2D323E] text-white text-xs font-bold active-scale hover:bg-primary transition-colors hover:shadow-lg">Đã làm xong</button>`; 
+            actHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-full mt-3 py-2.5 rounded-xl bg-surface text-main text-xs font-bold active-scale hover:bg-primary transition-colors hover:shadow-lg">Đã làm xong</button>`; 
         } else if (t.status === 'Pending Approval') { 
             statHtml = `<span class="badge-pending"><i class="fa-solid fa-clock mr-1"></i>Chờ duyệt</span>`; 
-            actHtml = `<div class="mt-3 text-[11px] text-muted text-center">Xí bởi: <span class="text-white font-medium">${t.completedByName}</span></div>`; 
+            actHtml = `<div class="mt-3 text-[11px] text-muted text-center">Xí bởi: <span class="text-main font-medium">${t.completedByName}</span></div>`; 
         } else if (t.status === 'Approved') { 
             statHtml = `<span class="badge-approved"><i class="fa-solid fa-check mr-1"></i>Hoàn thành</span>`; 
             actHtml = `<div class="mt-3 text-[11px] text-muted text-center">Hoàn thành bởi: <span class="text-success font-medium">${t.completedByName}</span></div>`; 
@@ -294,14 +294,14 @@ function renderTasks(tasks) {
             ${t.status === 'Approved' ? '<div class="absolute inset-0 bg-success/5 pointer-events-none"></div>' : ''}
             <div class="flex justify-between items-start mb-2 relative z-10">
                 <div class="flex items-center gap-3">
-                    <div class="w-9 h-9 rounded-xl flex items-center justify-center bg-[#2D323E] text-[#9CA3AF]"><i class="${t.icon}"></i></div>
-                    <h3 class="font-bold text-white text-sm max-w-[150px] leading-tight">${t.name}</h3>
+                    <div class="w-9 h-9 rounded-xl flex items-center justify-center bg-surface text-muted"><i class="${t.icon}"></i></div>
+                    <h3 class="font-bold text-main text-sm max-w-[150px] leading-tight">${t.name}</h3>
                 </div>
                 ${statHtml}
             </div>
             <div class="flex items-center gap-3 text-xs text-muted mt-2 relative z-10">
-                <span class="flex items-center gap-1 bg-[#16181D] px-2 py-1 rounded border border-borderline"><i class="fa-solid fa-coins text-yellow-500"></i> <b class="text-white">+${t.points}</b></span>
-                <span class="flex items-center gap-1 bg-[#16181D] px-2 py-1 rounded border border-borderline text-red-400"><i class="fa-solid fa-arrow-trend-down"></i> <b class="text-red-400">-${t.penalty}</b></span>
+                <span class="flex items-center gap-1 bg-input px-2 py-1 rounded border border-borderline"><i class="fa-solid fa-coins text-yellow-500"></i> <b class="text-main">+${t.points}</b></span>
+                <span class="flex items-center gap-1 bg-input px-2 py-1 rounded border border-borderline text-red-400"><i class="fa-solid fa-arrow-trend-down"></i> <b class="text-red-400">-${t.penalty}</b></span>
             </div>
             ${actHtml}
         </div>`;
@@ -340,10 +340,10 @@ function renderRewards(rewards) {
         const rIcon = r.icon || 'fa-solid fa-gift text-amber-500';
         container.innerHTML += `
         <div class="bg-card border border-borderline rounded-2xl p-4 flex flex-col items-center text-center shadow-sm">
-            <div class="w-12 h-12 rounded-full bg-[#2D323E] flex items-center justify-center mb-3 text-xl"><i class="${rIcon}"></i></div>
-            <h3 class="font-bold text-white text-sm mb-1 line-clamp-1">${r.reward_name}</h3>
+            <div class="w-12 h-12 rounded-full bg-surface flex items-center justify-center mb-3 text-xl"><i class="${rIcon}"></i></div>
+            <h3 class="font-bold text-main text-sm mb-1 line-clamp-1">${r.reward_name}</h3>
             <div class="text-primary font-bold text-xs mb-3 flex items-center gap-1"><i class="fa-solid fa-coins text-yellow-500"></i> ${r.cost}</div>
-            <button onclick="redeemReward('${r.id}', ${r.cost}, '${r.reward_name}')" class="w-full py-2 rounded-xl text-xs font-bold active-scale transition-all duration-300 ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105' : 'bg-[#2D323E] text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>Đổi quà</button>
+            <button onclick="redeemReward('${r.id}', ${r.cost}, '${r.reward_name}')" class="w-full py-2 rounded-xl text-xs font-bold active-scale transition-all duration-300 ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105' : 'bg-surface text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>Đổi quà</button>
         </div>`;
     });
 }
@@ -372,13 +372,12 @@ async function redeemReward(rewardId, cost, name) {
     loadHomeData();
 }
 
-// --- BÁO CÁO ---
 function toggleCustomDate() {
     const picker = document.getElementById('custom-date-picker'); 
     picker.classList.toggle('hidden');
-    document.querySelectorAll('.report-filter').forEach(el => { el.classList.remove('bg-primary', 'text-white'); el.classList.add('bg-card', 'text-muted'); });
+    document.querySelectorAll('.report-filter').forEach(el => { el.classList.remove('bg-primary', 'text-main'); el.classList.add('bg-card', 'text-muted'); });
     document.getElementById('filter-custom').classList.remove('bg-card', 'text-muted'); 
-    document.getElementById('filter-custom').classList.add('bg-primary', 'text-white');
+    document.getElementById('filter-custom').classList.add('bg-primary', 'text-main');
 }
 
 async function loadCustomReport() {
@@ -401,9 +400,9 @@ async function loadReport(timeframe) {
     document.getElementById('custom-date-picker').classList.add('hidden'); 
     currentReportTimeframe = timeframe;
     
-    document.querySelectorAll('.report-filter').forEach(el => { el.classList.remove('bg-primary', 'text-white'); el.classList.add('bg-card', 'text-muted'); });
+    document.querySelectorAll('.report-filter').forEach(el => { el.classList.remove('bg-primary', 'text-main'); el.classList.add('bg-card', 'text-muted'); });
     document.getElementById(`filter-${timeframe}`).classList.remove('bg-card', 'text-muted'); 
-    document.getElementById(`filter-${timeframe}`).classList.add('bg-primary', 'text-white');
+    document.getElementById(`filter-${timeframe}`).classList.add('bg-primary', 'text-main');
     
     const now = new Date(); 
     let startDate = new Date(0), endDate = new Date('2099-01-01');
@@ -551,12 +550,12 @@ function renderTaskStats(taskStats) {
         const percent = total === 0 ? 0 : Math.round((t.completed / total) * 100);
         
         container.innerHTML += `
-        <div class="bg-[#16181D] rounded-xl p-3 border border-borderline relative overflow-hidden">
+        <div class="bg-input rounded-xl p-3 border border-borderline relative overflow-hidden">
             <div class="flex justify-between items-center mb-2">
-                <span class="text-xs font-bold text-white">${t.name}</span>
+                <span class="text-xs font-bold text-main">${t.name}</span>
                 <span class="text-[10px] text-muted">${percent}% Done</span>
             </div>
-            <div class="w-full bg-[#2D323E] rounded-full h-1.5 mb-2">
+            <div class="w-full bg-surface rounded-full h-1.5 mb-2">
                 <div class="bg-primary h-1.5 rounded-full" style="width: ${percent}%"></div>
             </div>
             <div class="flex justify-between text-[10px] items-center">
@@ -576,7 +575,7 @@ function renderLeaderboard(data) {
     if(data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Chưa có dữ liệu.</div>';
     
     data.forEach((user, index) => {
-        let rankIcon = `<div class="w-6 h-6 rounded-full bg-[#2D323E] text-muted flex items-center justify-center text-xs font-bold">${index + 1}</div>`;
+        let rankIcon = `<div class="w-6 h-6 rounded-full bg-surface text-muted flex items-center justify-center text-xs font-bold">${index + 1}</div>`;
         if (index === 0) rankIcon = `<i class="fa-solid fa-crown text-yellow-500 text-xl drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]"></i>`; 
         else if (index === 1) rankIcon = `<i class="fa-solid fa-medal text-gray-300 text-lg"></i>`; 
         else if (index === 2) rankIcon = `<i class="fa-solid fa-medal text-amber-600 text-lg"></i>`;
@@ -585,7 +584,7 @@ function renderLeaderboard(data) {
         <div class="bg-card border border-borderline rounded-2xl p-4 flex items-center gap-4">
             <div class="w-8 flex justify-center">${rankIcon}</div>
             <div class="flex-1">
-                <div class="font-bold text-white text-sm">${user.name}</div>
+                <div class="font-bold text-main text-sm">${user.name}</div>
                 <div class="text-[11px] text-muted">Hiện có: <span class="text-primary font-bold">${user.currentPoints}</span> pts</div>
             </div>
             <div class="text-right space-y-1">
@@ -596,11 +595,10 @@ function renderLeaderboard(data) {
     });
 }
 
-// --- ADMIN ---
 async function loadAdminData(type) {
     currentAdminType = type; 
-    document.querySelectorAll('#view-admin button[id^="admin-tab-"]').forEach(el => { el.classList.remove('bg-[#2D323E]', 'text-white'); el.classList.add('text-muted'); });
-    document.getElementById(`admin-tab-${type}`).classList.add('bg-[#2D323E]', 'text-white'); 
+    document.querySelectorAll('#view-admin button[id^="admin-tab-"]').forEach(el => { el.classList.remove('bg-surface', 'text-main'); el.classList.add('text-muted'); });
+    document.getElementById(`admin-tab-${type}`).classList.add('bg-surface', 'text-main'); 
     document.getElementById(`admin-tab-${type}`).classList.remove('text-muted');
     
     const addBtn = document.getElementById('admin-add-btn');
@@ -648,13 +646,13 @@ async function loadApprovals() {
         <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
             <div class="flex justify-between items-start mb-2">
                 <div class="flex items-start gap-2">
-                    <i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'} text-[#9CA3AF] mt-1 text-sm bg-[#2D323E] w-6 h-6 rounded flex items-center justify-center"></i>
+                    <i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'} text-muted mt-1 text-sm bg-surface w-6 h-6 rounded flex items-center justify-center"></i>
                     <div>
-                        <h4 class="font-bold text-white text-sm max-w-[150px] leading-tight">${item.tasks?.task_name}</h4>
-                        <div class="text-[11px] text-muted mt-1">Người làm: <span class="text-white">${item.users?.name || item.username}</span></div>
+                        <h4 class="font-bold text-main text-sm max-w-[150px] leading-tight">${item.tasks?.task_name}</h4>
+                        <div class="text-[11px] text-muted mt-1">Người làm: <span class="text-main">${item.users?.name || item.username}</span></div>
                     </div>
                 </div>
-                <div class="text-primary font-bold text-sm bg-[#16181D] px-2 py-1 rounded">+${item.tasks?.points}</div>
+                <div class="text-primary font-bold text-sm bg-input px-2 py-1 rounded">+${item.tasks?.points}</div>
             </div>
             <div class="flex gap-2 mt-4">
                 <button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
@@ -695,19 +693,19 @@ function renderAdminList(type, data) {
             id = item.username; 
             title = item.name; 
             subtitle = `${item.role} - <span class="text-yellow-500">${item.points} pts</span>`; 
-            prefixHTML = `<div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white overflow-hidden bg-[#2D323E]">${item.avatar && item.avatar.trim() !== '' ? `<img src="${item.avatar}" class="w-full h-full object-cover">` : item.name.charAt(0)}</div>`; 
+            prefixHTML = `<div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-main overflow-hidden bg-surface">${item.avatar && item.avatar.trim() !== '' ? `<img src="${item.avatar}" class="w-full h-full object-cover">` : item.name.charAt(0)}</div>`; 
         }
         else if (type === 'tasks') { 
             id = item.id; 
             title = item.task_name; 
             subtitle = `${item.frequency} | Thuộc tính: <span class="text-primary">+${item.points}</span> / <span class="text-red-400">-${item.penalty}</span>`; 
-            prefixHTML = `<div class="w-8 h-8 rounded bg-[#2D323E] flex items-center justify-center"><i class="${item.icon || 'fa-solid fa-clipboard-list'} text-[#9CA3AF] text-xs"></i></div>`; 
+            prefixHTML = `<div class="w-8 h-8 rounded bg-surface flex items-center justify-center"><i class="${item.icon || 'fa-solid fa-clipboard-list'} text-muted text-xs"></i></div>`; 
         }
         else if (type === 'rewards') { 
             id = item.id; 
             title = item.reward_name; 
             subtitle = `<span class="text-yellow-500">${item.cost} pts</span>`; 
-            prefixHTML = `<div class="w-8 h-8 rounded bg-[#2D323E] flex items-center justify-center"><i class="${item.icon || 'fa-solid fa-gift'} text-amber-500 text-xs"></i></div>`; 
+            prefixHTML = `<div class="w-8 h-8 rounded bg-surface flex items-center justify-center"><i class="${item.icon || 'fa-solid fa-gift'} text-amber-500 text-xs"></i></div>`; 
         }
         
         window[`editData_${id}`] = item;
@@ -717,12 +715,12 @@ function renderAdminList(type, data) {
             <div class="flex gap-3 items-center">
                 ${prefixHTML}
                 <div>
-                    <h4 class="font-bold text-white text-sm">${title}</h4>
+                    <h4 class="font-bold text-main text-sm">${title}</h4>
                     <div class="text-[10px] text-muted mt-0.5">${subtitle}</div>
                 </div>
             </div>
             <div class="flex gap-2">
-                <button onclick="openModal('${type}', window['editData_${id}'])" class="w-8 h-8 rounded-lg bg-[#2D323E] text-white flex items-center justify-center active-scale"><i class="fa-solid fa-pen text-xs"></i></button>
+                <button onclick="openModal('${type}', window['editData_${id}'])" class="w-8 h-8 rounded-lg bg-surface text-main flex items-center justify-center active-scale"><i class="fa-solid fa-pen text-xs"></i></button>
                 <button onclick="deleteData('${type}', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>
             </div>
         </div>`;
@@ -736,7 +734,7 @@ function handleFreqChange() {
         schedContainer.innerHTML = '';
     } else if (freq === 'Weekly') {
         schedContainer.innerHTML = `
-            <select id="inp-tsched" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
+            <select id="inp-tsched" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3">
                 <option value="1">Thứ 2</option>
                 <option value="2">Thứ 3</option>
                 <option value="3">Thứ 4</option>
@@ -748,7 +746,7 @@ function handleFreqChange() {
         `;
     } else if (freq === 'Monthly') {
         schedContainer.innerHTML = `
-            <select id="inp-tsched" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
+            <select id="inp-tsched" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3">
                 <option value="1">Tuần 1</option>
                 <option value="2">Tuần 2</option>
                 <option value="3">Tuần 3</option>
@@ -761,14 +759,14 @@ function handleFreqChange() {
 function selectIcon(iconClass) {
     document.getElementById('inp-icon').value = iconClass;
     document.querySelectorAll('.icon-option').forEach(el => {
-        el.classList.remove('bg-primary', 'text-white', 'ring-2', 'ring-primary');
-        el.classList.add('bg-[#2D323E]', 'text-[#9CA3AF]');
+        el.classList.remove('bg-primary', 'text-main', 'ring-2', 'ring-primary');
+        el.classList.add('bg-surface', 'text-muted');
     });
     const formattedId = iconClass.replace(/ /g, '-');
     const selectedEl = document.getElementById('icon-' + formattedId);
     if(selectedEl) {
-        selectedEl.classList.remove('bg-[#2D323E]', 'text-[#9CA3AF]');
-        selectedEl.classList.add('bg-primary', 'text-white', 'ring-2', 'ring-primary');
+        selectedEl.classList.remove('bg-surface', 'text-muted');
+        selectedEl.classList.add('bg-primary', 'text-main', 'ring-2', 'ring-primary');
     }
 }
 
@@ -784,7 +782,7 @@ function openModal(type, item = null) {
         iconGridHtml = `
             <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">CHỌN ICON</label>
             <div class="grid grid-cols-6 gap-2 mb-4" id="icon-picker">
-                ${ICONS.map(i => `<div onclick="selectIcon('${i}')" id="icon-${i.replace(/ /g, '-')}" class="icon-option w-full aspect-square flex items-center justify-center rounded-xl bg-[#2D323E] cursor-pointer active-scale text-[#9CA3AF]"><i class="${i}"></i></div>`).join('')}
+                ${ICONS.map(i => `<div onclick="selectIcon('${i}')" id="icon-${i.replace(/ /g, '-')}" class="icon-option w-full aspect-square flex items-center justify-center rounded-xl bg-surface cursor-pointer active-scale text-muted"><i class="${i}"></i></div>`).join('')}
             </div>
             <input type="hidden" id="inp-icon" value="${item && item.icon ? item.icon : ICONS[0]}">
         `;
@@ -798,29 +796,29 @@ function openModal(type, item = null) {
             : `<option value="User" selected>User</option>`;
             
         body.innerHTML = `
-            <input id="inp-username" type="text" placeholder="Tên user" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.username : ''}" ${item ? 'disabled' : ''}>
-            <input id="inp-name" type="text" placeholder="Tên đẹp" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.name : ''}">
-            <input id="inp-points" type="number" placeholder="Điểm" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.points : '0'}">
-            <select id="inp-role" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">${roleOpts}</select>
-            <input id="inp-password" type="text" placeholder="Pass (không mã hoá)" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.password : ''}">
-            <input id="inp-avatar" type="text" placeholder="URL Hình Avatar" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item && item.avatar ? item.avatar : ''}">
+            <input id="inp-username" type="text" placeholder="Tên user" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3" value="${item ? item.username : ''}" ${item ? 'disabled' : ''}>
+            <input id="inp-name" type="text" placeholder="Tên đẹp" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3" value="${item ? item.name : ''}">
+            <input id="inp-points" type="number" placeholder="Điểm" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3" value="${item ? item.points : '0'}">
+            <select id="inp-role" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3">${roleOpts}</select>
+            <input id="inp-password" type="text" placeholder="Pass (không mã hoá)" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3" value="${item ? item.password : ''}">
+            <input id="inp-avatar" type="text" placeholder="URL Hình Avatar" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none" value="${item && item.avatar ? item.avatar : ''}">
         `;
     } else if (type === 'tasks') {
         const isWeekly = item && item.frequency === 'Weekly';
         const isMonthly = item && item.frequency === 'Monthly';
         
         body.innerHTML = `
-            <input id="inp-tname" type="text" placeholder="Tên việc" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.task_name : ''}">
+            <input id="inp-tname" type="text" placeholder="Tên việc" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3" value="${item ? item.task_name : ''}">
             ${iconGridHtml}
-            <select id="inp-tfreq" onchange="handleFreqChange()" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3">
+            <select id="inp-tfreq" onchange="handleFreqChange()" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3">
                 <option value="Daily" ${item && item.frequency === 'Daily' ? 'selected' : ''}>Hàng ngày</option>
                 <option value="Weekly" ${isWeekly ? 'selected' : ''}>Hàng tuần</option>
                 <option value="Monthly" ${isMonthly ? 'selected' : ''}>Hàng tháng</option>
             </select>
             <div id="sched-container"></div>
             <div class="grid grid-cols-2 gap-2 mt-3">
-                <input id="inp-tpoints" type="number" placeholder="Thưởng pts" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.points : ''}">
-                <input id="inp-tpenalty" type="number" placeholder="Phạt pts" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none" value="${item ? item.penalty : ''}">
+                <input id="inp-tpoints" type="number" placeholder="Thưởng pts" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none" value="${item ? item.points : ''}">
+                <input id="inp-tpenalty" type="number" placeholder="Phạt pts" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none" value="${item ? item.penalty : ''}">
             </div>
         `;
         
@@ -834,9 +832,9 @@ function openModal(type, item = null) {
 
     } else if (type === 'rewards') {
         body.innerHTML = `
-            <input id="inp-rname" type="text" placeholder="Tên quà" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mb-3" value="${item ? item.reward_name : ''}">
+            <input id="inp-rname" type="text" placeholder="Tên quà" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mb-3" value="${item ? item.reward_name : ''}">
             ${iconGridHtml}
-            <input id="inp-rcost" type="number" placeholder="Giá pts" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none mt-3" value="${item ? item.cost : ''}">
+            <input id="inp-rcost" type="number" placeholder="Giá pts" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none mt-3" value="${item ? item.cost : ''}">
         `;
         
         setTimeout(() => {
@@ -934,3 +932,47 @@ async function deleteData(type, id) {
 window.onload = () => { 
     setTimeout(checkLoginStatus, 500); 
 };
+
+
+// --- THIẾT LẬP GIAO DIỆN NỀN TẢNG ---
+const THEMES = [
+    { id: 'dark', name: 'Đêm sâu', icon: 'fa-moon', bg: '#1A1D24', primary: '#3B82F6' },
+    { id: 'light', name: 'Sáng sủa', icon: 'fa-sun', bg: '#FFFFFF', primary: '#8B5CF6' },
+    { id: 'sakura', name: 'Hoa anh đào', icon: 'fa-spa', bg: '#FFE4E6', primary: '#F43F5E' },
+    { id: 'matcha', name: 'Trà xanh mộc', icon: 'fa-leaf', bg: '#D1FAE5', primary: '#10B981' },
+    { id: 'cyberpunk', name: 'Neon Cyber', icon: 'fa-bolt', bg: '#1E1B4B', primary: '#EAB308' }
+];
+
+function openThemeModal() {
+    const container = document.getElementById('theme-options-container');
+    container.innerHTML = '';
+    const currentMode = localStorage.getItem('housework_theme') || 'dark';
+
+    THEMES.forEach(t => {
+        const isSelected = currentMode === t.id;
+        container.innerHTML += `
+        <div onclick="setAppTheme('${t.id}')" class="flex items-center justify-between p-4 rounded-xl border ${isSelected ? 'border-primary bg-primary/10' : 'border-borderline bg-input'} cursor-pointer active-scale mb-2 transition-all">
+            <div class="flex items-center gap-4">
+                <div class="w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md" style="background-color: ${t.primary};"><i class="fa-solid ${t.icon}"></i></div>
+                <div class="font-bold text-main">${t.name}</div>
+            </div>
+            ${isSelected ? '<i class="fa-solid fa-circle-check text-primary text-xl"></i>' : ''}
+        </div>`;
+    });
+
+    document.getElementById('theme-modal').classList.remove('hidden');
+    document.getElementById('theme-modal').classList.add('flex');
+}
+
+function closeThemeModal() {
+    document.getElementById('theme-modal').classList.add('hidden');
+    document.getElementById('theme-modal').classList.remove('flex');
+}
+
+function setAppTheme(themeId) {
+    if (themeId === 'dark') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', themeId);
+    
+    localStorage.setItem('housework_theme', themeId);
+    openThemeModal();
+}
