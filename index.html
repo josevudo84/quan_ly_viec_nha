@@ -174,6 +174,21 @@
       <div id="report-content-leaderboard" class="space-y-3 hidden"></div>
     </section>
 
+    <!-- VIEW: HISTORY -->
+    <section id="view-history" class="view-section hidden">
+      <h2 class="text-xl font-bold text-main mb-4">Lịch sử hoạt động</h2>
+      <div class="flex border-b border-borderline mb-5">
+        <button id="htab-points" onclick="switchHistoryTab('points')" class="flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary">Biến động điểm</button>
+        <button id="htab-rewards" onclick="switchHistoryTab('rewards')" class="flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent">Lịch sử đổi quà</button>
+      </div>
+      <div id="history-content-points">
+        <div class="flex flex-col gap-3" id="history-points-list"></div>
+      </div>
+      <div id="history-content-rewards" class="hidden">
+        <div class="flex flex-col gap-3" id="history-rewards-list"></div>
+      </div>
+    </section>
+
     <!-- VIEW: ADMIN -->
     <section id="view-admin" class="view-section hidden">
       <div class="flex justify-between items-center mb-4">
@@ -196,6 +211,7 @@
   <nav class="glass-nav fixed bottom-0 w-full max-w-lg left-1/2 -translate-x-1/2 pb-6 pt-3 px-6 flex justify-between items-center z-30 h-20">
     <button id="nav-home" onclick="switchTab('home')" class="nav-btn flex flex-col items-center gap-1.5 text-primary active-scale w-16"><i class="fa-solid fa-house text-lg"></i><span class="text-[10px] font-bold">Trang chủ</span></button>
     <button id="nav-reports" onclick="switchTab('reports')" class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16"><i class="fa-solid fa-chart-pie text-lg"></i><span class="text-[10px] font-bold">Báo cáo</span></button>
+    <button id="nav-history" onclick="switchTab('history')" class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16"><i class="fa-solid fa-clock-rotate-left text-lg"></i><span class="text-[10px] font-bold">Lịch sử</span></button>
     <button id="nav-admin" onclick="switchTab('admin')" class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16 hidden"><i class="fa-solid fa-shield-halved text-lg"></i><span class="text-[10px] font-bold">Quản trị</span></button>
   </nav>
 

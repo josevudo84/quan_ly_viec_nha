@@ -162,6 +162,7 @@ function switchTab(tabId) {
     document.getElementById(`nav-${tabId}`).classList.remove('text-muted'); document.getElementById(`nav-${tabId}`).classList.add('text-primary');
     if (tabId === 'home') loadHomeData(); 
     if (tabId === 'reports') loadReport(currentReportTimeframe); 
+    if (tabId === 'history') loadHistoryData();
     if (tabId === 'admin') loadAdminData('approvals');
 }
 
@@ -315,13 +316,149 @@ async function loadCustomReport() {
     loadReportData(new Date(start), new Date(end + 'T23:59:59'));
 }
 
-function switchReportTab(tab) {
-    currentReportTab = tab;
-    document.getElementById('rtab-tasks').className = `flex-1 py-3 text-sm font-bold transition-colors ${tab === 'tasks' ? 'text-primary border-b-2 border-primary' : 'text-muted border-b-2 border-transparent'}`;
-    document.getElementById('rtab-leaderboard').className = `flex-1 py-3 text-sm font-bold transition-colors ${tab === 'leaderboard' ? 'text-primary border-b-2 border-primary' : 'text-muted border-b-2 border-transparent'}`;
-    document.getElementById('report-content-tasks').style.display = tab === 'tasks' ? 'block' : 'none'; 
-    document.getElementById('report-content-leaderboard').style.display = tab === 'leaderboard' ? 'block' : 'none';
+let currentHistoryTab = 'points';
+function switchHistoryTab(tab) {
+    currentHistoryTab = tab;
+    document.getElementById('htab-points').className = `flex-1 py-2 text-sm font-bold transition-colors ${tab === 'points' ? 'text-primary border-b-2 border-primary' : 'text-muted border-b-2 border-transparent'}`;
+    document.getElementById('htab-rewards').className = `flex-1 py-2 text-sm font-bold transition-colors ${tab === 'rewards' ? 'text-primary border-b-2 border-primary' : 'text-muted border-b-2 border-transparent'}`;
+    document.getElementById('history-content-points').style.display = tab === 'points' ? 'block' : 'none'; 
+    document.getElementById('history-content-rewards').style.display = tab === 'rewards' ? 'block' : 'none';
 }
+
+async function loadHistoryData() {
+    showLoading(true);
+    
+    // Fetch user transactions
+    const { data: trans } = await supabaseClient.from('transactions')
+        .select('*')
+        .eq('username', currentUser.username)
+        .order('created_at', { ascending: false });
+
+    // Try to calculate missed tasks dynamically to mix into history
+    const { data: tasks } = await supabaseClient.from('tasks').select('*');
+    const { data: firstLog } = await supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
+    
+    let appStartDate = null;
+    if (firstLog && firstLog.length > 0) {
+        appStartDate = new Date(firstLog[0].created_at);
+        appStartDate.setHours(0,0,0,0);
+    }
+    
+    const { data: logs } = await supabaseClient.from('task_logs')
+        .select('*')
+        .eq('username', currentUser.username)
+        .eq('status', 'Approved');
+        
+    const logMap = {};
+    if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id] = true);
+    
+    let historyItems = [];
+    
+    // Prepare transaction items
+    if (trans) {
+        trans.forEach(t => {
+            let label = t.description;
+            let actType = 'Earn';
+            if (t.type === 'Spend') { actType = 'Spend'; label = 'Đổi quà: ' + t.description.replace('Đổi quà: ', ''); }
+            else if (t.type === 'Penalty') { actType = 'Penalty'; label = 'Bị trừ điểm: ' + t.description; }
+            else { actType = 'Earn'; }
+            
+            historyItems.push({
+                date: new Date(t.created_at),
+                type: actType,
+                label: label,
+                amount: t.amount
+            });
+        });
+    }
+
+    // Prepare missed tasks items
+    if (appStartDate && tasks) {
+        const today = new Date();
+        const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+        for (let d = new Date(appStartDate); d <= today; d.setDate(d.getDate() + 1)) {
+            const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+            if (dateStr >= todayStr) continue; // Only count past days
+            
+            const dayOfWeek = d.getDay(); const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
+            const weekOfMonth = Math.ceil(d.getDate() / 7);
+            const weekStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-W${weekOfMonth}`;
+            
+            tasks.forEach(t => {
+                let isDue = false, pId = '';
+                if (t.frequency === 'Daily') { isDue = true; pId = dateStr; }
+                else if (t.frequency === 'Weekly' && t.schedule == dayOfWeekAdjusted) { isDue = true; pId = dateStr; }
+                else if (t.frequency === 'Monthly' && t.schedule == weekOfMonth) { isDue = true; pId = weekStr; }
+                else if (t.frequency === 'Adhoc' && t.schedule === dateStr) { isDue = true; pId = dateStr; }
+                
+                if (isDue && t.penalty > 0) {
+                    if (!logMap[t.id + '_' + pId]) {
+                        // Avoid duplicates if admin already created a manual penalty transaction for it? 
+                        // It's hard to know exactly, so we just add the "Missed" item.
+                        historyItems.push({
+                            date: new Date(d.setHours(23,59,59)),
+                            type: 'Missed',
+                            label: 'Chưa xong: ' + t.task_name,
+                            amount: t.penalty
+                        });
+                    }
+                }
+            });
+        }
+    }
+    
+    historyItems.sort((a, b) => b.date - a.date);
+    showLoading(false);
+    
+    // Render Points (Mix of Earn, Missed, adjusted, spend...)
+    const pContainer = document.getElementById('history-points-list'); pContainer.innerHTML = '';
+    if (historyItems.length === 0) {
+        pContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có lịch sử nào.</div>';
+    } else {
+        historyItems.forEach(item => {
+            const dateStr = item.date.toLocaleDateString('vi-VN');
+            let icon = 'fa-star text-primary', valClass = 'text-success', sign = '+';
+            if (item.type === 'Spend') { icon = 'fa-gift text-amber-500'; valClass = 'text-muted'; sign = '-'; }
+            else if (item.type === 'Missed' || item.type === 'Penalty') { icon = 'fa-triangle-exclamation text-red-400'; valClass = 'text-red-500'; sign = '-'; }
+            else { icon = 'fa-circle-check text-success'; valClass = 'text-success'; sign = '+'; }
+            
+            pContainer.innerHTML += `
+            <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3">
+                <div class="w-10 h-10 shrink-0 rounded-xl bg-surface flex items-center justify-center text-lg"><i class="fa-solid ${icon}"></i></div>
+                <div class="flex-1 min-w-0">
+                    <h4 class="font-bold text-main text-sm truncate">${item.label}</h4>
+                    <span class="text-[10px] text-muted">${dateStr}</span>
+                </div>
+                <div class="font-black text-sm ${valClass}">${sign}${item.amount}</div>
+            </div>`;
+        });
+        pContainer.innerHTML += `<div class="bg-primary/10 border border-primary/20 rounded-2xl p-4 shadow-sm flex justify-between mt-2">
+            <span class="font-bold text-main text-sm">Tổng điểm hiện tại:</span>
+            <span class="font-black text-primary text-base">${currentUser.points}</span>
+        </div>`;
+    }
+    
+    // Render Rewards History
+    const rContainer = document.getElementById('history-rewards-list'); rContainer.innerHTML = '';
+    const rewardItems = historyItems.filter(i => i.type === 'Spend');
+    if (rewardItems.length === 0) {
+        rContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Bạn chưa đổi món quà nào.</div>';
+    } else {
+        rewardItems.forEach(item => {
+            const dateStr = item.date.toLocaleDateString('vi-VN');
+            rContainer.innerHTML += `
+            <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3">
+                <div class="w-10 h-10 shrink-0 rounded-xl bg-surface flex items-center justify-center text-lg text-amber-500"><i class="fa-solid fa-gift"></i></div>
+                <div class="flex-1 min-w-0">
+                    <h4 class="font-bold text-main text-sm truncate">${item.label}</h4>
+                    <span class="text-[10px] text-muted">${dateStr}</span>
+                </div>
+                <div class="font-black text-sm text-yellow-500">-${item.amount}</div>
+            </div>`;
+        });
+    }
+}
+
 
 async function loadReport(timeframe) {
     if (timeframe === 'custom') return toggleCustomDate(); 
