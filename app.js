@@ -126,17 +126,95 @@ function updateAvatarHeader() {
     }
 }
 
-function openAvatarModal() { document.getElementById('inp-avatar-url').value = currentUser.avatar || ''; document.getElementById('avatar-modal').classList.remove('hidden'); document.getElementById('avatar-modal').classList.add('flex'); }
-function closeAvatarModal() { document.getElementById('avatar-modal').classList.add('hidden'); document.getElementById('avatar-modal').classList.remove('flex'); }
+function openAvatarModal() { 
+    const prev = document.getElementById('avatar-preview');
+    const pl = document.getElementById('avatar-placeholder');
+    const bInput = document.getElementById('hidden-avatar-base64');
+    
+    document.getElementById('inp-avatar-upload').value = '';
+    if (currentUser.avatar && currentUser.avatar.trim() !== '') {
+        prev.src = currentUser.avatar;
+        bInput.value = currentUser.avatar;
+        prev.classList.remove('hidden');
+        pl.classList.add('hidden');
+    } else {
+        prev.classList.add('hidden');
+        pl.classList.remove('hidden');
+        pl.innerText = currentUser.name.charAt(0).toUpperCase();
+        bInput.value = '';
+    }
+    document.getElementById('avatar-modal').classList.remove('hidden'); 
+    document.getElementById('avatar-modal').classList.add('flex'); 
+}
 
-async function saveAvatar() {
-    const url = document.getElementById('inp-avatar-url').value.trim();
+function closeAvatarModal() { 
+    document.getElementById('avatar-modal').classList.add('hidden'); 
+    document.getElementById('avatar-modal').classList.remove('flex'); 
+}
+
+function previewAvatar(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Validate size (let's say 5MB max before compression)
+    if (file.size > 5 * 1024 * 1024) {
+        return showToast('Ảnh quá lớn (tối đa 5MB)!', 'error');
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+            // Compress using Canvas
+            const canvas = document.createElement('canvas');
+            const MAX_SIZE = 150;
+            let width = img.width;
+            let height = img.height;
+            
+            if (width > height) {
+                if (width > MAX_SIZE) {
+                    height *= MAX_SIZE / width;
+                    width = MAX_SIZE;
+                }
+            } else {
+                if (height > MAX_SIZE) {
+                    width *= MAX_SIZE / height;
+                    height = MAX_SIZE;
+                }
+            }
+            
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+            
+            document.getElementById('avatar-preview').src = dataUrl;
+            document.getElementById('avatar-preview').classList.remove('hidden');
+            document.getElementById('avatar-placeholder').classList.add('hidden');
+            document.getElementById('hidden-avatar-base64').value = dataUrl;
+        };
+        img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+}
+
+async function saveAvatarUpload() {
+    const b64 = document.getElementById('hidden-avatar-base64').value;
+    if (!b64 || b64.trim() === '') return showToast('Bạn chưa chọn ảnh nào!', 'error');
+    
     showLoading(true);
-    const { error } = await supabaseClient.from('users').update({ avatar: url }).eq('username', currentUser.username);
+    const { error } = await supabaseClient.from('users').update({ avatar: b64 }).eq('username', currentUser.username);
     showLoading(false);
-    if (error) return showToast('Lỗi cập nhật DB!', 'error');
-    currentUser.avatar = url; localStorage.setItem('housework_user', JSON.stringify(currentUser));
-    updateAvatarHeader(); closeAvatarModal(); showToast('Cập nhật avatar thành công!');
+    
+    if (error) return showToast('Lỗi cập nhật server!', 'error');
+    
+    currentUser.avatar = b64; 
+    localStorage.setItem('housework_user', JSON.stringify(currentUser));
+    updateAvatarHeader(); 
+    closeAvatarModal(); 
+    showToast('Ăn mặc đẹp đấy! Đã cập nhật ảnh!', 'success');
 }
 
 let currentReportData = { tasks: [], logs: [], startDate: null, endDate: null, users: [] };

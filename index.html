@@ -67,11 +67,17 @@
         <h3 class="font-bold text-main text-lg">Đổi Ảnh Đại Diện</h3>
         <button onclick="closeAvatarModal()" class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i class="fa-solid fa-xmark"></i></button>
       </div>
-      <div class="p-5">
-        <label class="block text-xs font-bold text-muted mb-2 uppercase tracking-wider">Link ảnh (URL)</label>
-        <input id="inp-avatar-url" type="text" placeholder="Dán URL ảnh vào đây..." class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none">
+      <div class="p-5 flex flex-col items-center">
+        <div class="relative w-24 h-24 rounded-full bg-surface border-4 border-input mb-4 overflow-hidden shadow-inner flex items-center justify-center group cursor-pointer" onclick="document.getElementById('inp-avatar-upload').click()">
+            <img id="avatar-preview" src="" class="w-full h-full object-cover hidden" alt="Avatar">
+            <div id="avatar-placeholder" class="text-3xl text-muted font-black uppercase">?</div>
+            <div class="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center text-white"><i class="fa-solid fa-camera"></i></div>
+        </div>
+        <input id="inp-avatar-upload" type="file" accept="image/*" class="hidden" onchange="previewAvatar(event)">
+        <p class="text-[10px] text-muted text-center max-w-[200px]">Nhấn vào hình để tải ảnh lên (Ảnh sẽ được tự động thu nhỏ).</p>
+        <input id="hidden-avatar-base64" type="hidden">
       </div>
-      <div class="p-5 border-t border-borderline bg-input"><button onclick="saveAvatar()" class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale">Cập nhật ảnh</button></div>
+      <div class="p-5 border-t border-borderline bg-input"><button onclick="saveAvatarUpload()" class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale">Lưu ảnh mới</button></div>
     </div>
   </div>
 
