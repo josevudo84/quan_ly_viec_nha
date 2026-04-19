@@ -7,6 +7,8 @@ let currentAdminType = 'approvals';
 let currentReportTimeframe = 'this_week'; 
 let currentReportTab = 'tasks';
 
+let currentReportData = { tasks: [], logs: [], startDate: null, endDate: null, users: [] };
+
 const ICONS = ['fa-solid fa-clipboard-list', 'fa-solid fa-broom', 'fa-solid fa-trash', 'fa-solid fa-shirt', 'fa-solid fa-utensils', 'fa-solid fa-droplet', 'fa-solid fa-leaf', 'fa-solid fa-cart-shopping', 'fa-solid fa-book', 'fa-solid fa-sink', 'fa-solid fa-bath', 'fa-solid fa-dog', 'fa-solid fa-cat', 'fa-solid fa-box', 'fa-solid fa-gamepad', 'fa-solid fa-ticket', 'fa-solid fa-tv', 'fa-solid fa-mug-hot', 'fa-solid fa-star', 'fa-solid fa-gift', 'fa-solid fa-medal', 'fa-solid fa-motorcycle', 'fa-solid fa-car', 'fa-solid fa-money-bill', 'fa-solid fa-fire', 'fa-solid fa-rocket', 'fa-solid fa-bolt'];
 
 function showLoading(show) { document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none'; }
@@ -116,8 +118,6 @@ async function saveAvatar() {
     updateAvatarHeader(); closeAvatarModal(); showToast('Cập nhật avatar thành công!');
 }
 
-let currentReportData = { tasks: [], logs: [], startDate: null, endDate: null, users: [] };
-
 function initApp() {
     document.getElementById('user-name').innerText = currentUser.name; 
     document.getElementById('user-role').innerText = currentUser.role || 'User'; 
@@ -195,7 +195,10 @@ async function loadHomeData() {
 }
 
 function renderTaskGroup(tasks, containerId, emptyMsg) {
-    const container = document.getElementById(containerId); container.innerHTML = '';
+    const container = document.getElementById(containerId); 
+    if(!container) return false;
+    container.innerHTML = '';
+    
     if (tasks.length === 0) { container.innerHTML = `<div class="text-center text-muted py-6 text-xs bg-card border border-borderline rounded-2xl border-dashed">${emptyMsg}</div>`; return false; }
     
     let hasPending = false;
@@ -339,7 +342,6 @@ async function loadReportData(startDate, endDate) {
     
     currentReportData = { tasks: tasks || [], logs: logs || [], startDate, endDate, users: users || [] };
 
-    // Set up filter dropdown
     const filterSelect = document.getElementById('report-user-filter');
     const existingVal = filterSelect.value;
     filterSelect.innerHTML = '';
@@ -487,77 +489,81 @@ function renderLeaderboard(data) {
         else if (index === 2) rankIcon = `<i class="fa-solid fa-medal text-amber-600 text-xl"></i>`;
         
         container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-4 flex items-center gap-4 shadow-sm hover:border-primary/30 transition-all">
+        <div class="bg-card border border-borderline rounded-2xl p-4 flex items-center gap-4 shadow-sm hover:border-primary/30 transition-colors">
             <div class="w-8 flex justify-center">${rankIcon}</div>
             <div class="flex-1">
-                <div class="font-bold text-main text-sm">${user.name} ${user.username === currentUser.username ? '<span class="text-primary text-[10px] ml-1">(Tôi)</span>' : ''}</div>
-                <div class="text-[11px] text-muted">Hiện có: <span class="text-primary font-bold">${user.currentPoints}</span> pts</div>
+                <div class="font-bold text-main text-base">${user.name}</div>
+                <div class="text-[11px] text-muted">Hiện có: <span class="text-primary font-bold text-sm">${user.currentPoints}</span> pts</div>
             </div>
-            <div class="text-right space-y-1 bg-input px-3 py-1.5 rounded-lg border border-borderline">
-                <div class="text-xs text-success font-bold"><i class="fa-solid fa-arrow-trend-up mr-1 text-[10px]"></i>+${user.earned}</div>
+            <div class="text-right space-y-1">
+                <div class="text-xs font-bold text-success"><i class="fa-solid fa-arrow-trend-up mr-1 text-[10px]"></i>+${user.earned}</div>
                 <div class="text-[10px] font-bold text-red-400"><i class="fa-solid fa-arrow-trend-down mr-1 text-[10px]"></i>-${user.penalty}</div>
             </div>
         </div>`;
     });
 }
 
+// --- ADMIN ---
 async function loadAdminData(type) {
     currentAdminType = type; 
     document.querySelectorAll('#view-admin button[id^="admin-tab-"]').forEach(el => { el.classList.remove('bg-surface', 'text-main'); el.classList.add('text-muted'); });
-    document.getElementById(`admin-tab-${type}`).classList.add('bg-surface', 'text-main');  document.getElementById(`admin-tab-${type}`).classList.remove('text-muted');
+    document.getElementById(`admin-tab-${type}`).classList.add('bg-surface', 'text-main'); 
+    document.getElementById(`admin-tab-${type}`).classList.remove('text-muted');
     
     const addBtn = document.getElementById('admin-add-btn');
     const resetBtn = document.getElementById('admin-reset-btn');
     
+    if (type === 'users') { resetBtn.classList.remove('hidden'); resetBtn.classList.add('flex'); } 
+    else { resetBtn.classList.add('hidden'); resetBtn.classList.remove('flex'); }
+
     if (type === 'approvals') { 
-        addBtn.style.display = 'none'; resetBtn.style.display = 'none'; loadApprovals(); 
+        addBtn.classList.add('hidden'); addBtn.classList.remove('flex'); 
+        loadApprovals(); 
     } else {
-        addBtn.style.display = 'flex'; 
-        resetBtn.style.display = (type === 'users' && currentUser.role === 'Admin') ? 'flex' : 'none';
-        
+        addBtn.classList.remove('hidden'); addBtn.classList.add('flex');
         addBtn.onclick = () => openModal(type); 
-        showLoading(true); let data = [];
-        if (type === 'users') { 
-            const res = await supabaseClient.from('users').select('*'); data = res.data || []; 
-            if (currentUser.role === 'Moderator') data = data.filter(u => u.role === 'User'); 
-        } 
-        else if (type === 'tasks') { const res = await supabaseClient.from('tasks').select('*'); data = res.data || []; } 
-        else if (type === 'rewards') { const res = await supabaseClient.from('rewards').select('*'); data = res.data || []; }
-        showLoading(false); renderAdminList(type, data);
+        showLoading(true); 
+        let data = [];
+        if (type === 'users') { const { data: d } = await supabaseClient.from('users').select('*'); data = d; }
+        if (type === 'tasks') { const { data: d } = await supabaseClient.from('tasks').select('*'); data = d; }
+        if (type === 'rewards') { const { data: d } = await supabaseClient.from('rewards').select('*'); data = d; }
+        showLoading(false); renderAdminList(type, data || []);
     }
 }
 
 async function loadApprovals() {
-    showLoading(true); const { data, error } = await supabaseClient.from('task_logs').select('*, tasks(task_name, points, icon), users(name)').eq('status', 'Pending Approval'); showLoading(false);
+    showLoading(true);
+    const { data: logs } = await supabaseClient.from('task_logs').select('*, tasks(*), users(name)').eq('status', 'Pending Approval');
+    showLoading(false);
     const container = document.getElementById('admin-list-container'); container.innerHTML = '';
+    if (!logs || logs.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm bg-card border border-borderline rounded-2xl border-dashed">Chẳng có gì để duyệt cả!</div>';
     
-    if (error) return showToast(error.message, 'error'); 
-    if (!data || data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Quá mượt! Không có việc chờ duyệt.</div>';
-    
-    data.forEach(item => {
+    logs.forEach(item => {
         container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-primary/50 transition-all">
-            <div class="flex justify-between items-start mb-2">
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm relative overflow-hidden hover:border-primary/50 transition-colors">
+            <div class="flex justify-between items-start mb-4">
                 <div class="flex items-start gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary shadow-inner text-base"><i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'}"></i></div>
+                    <div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary text-lg shadow-inner"><i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'}"></i></div>
                     <div>
-                        <h4 class="font-bold text-main text-sm max-w-[150px] leading-tight mb-1">${item.tasks?.task_name}</h4>
-                        <div class="text-xs text-muted">Bởi: <span class="text-main font-bold">${item.users?.name || item.username}</span></div>
+                        <h4 class="font-bold text-main text-sm max-w-[150px] leading-tight line-clamp-2">${item.tasks?.task_name}</h4>
+                        <div class="text-[11px] text-muted mt-1.5 flex items-center gap-1"><i class="fa-solid fa-user-check"></i> <span class="text-main font-bold">${item.users?.name || item.username}</span></div>
                     </div>
                 </div>
-                <div class="text-success font-black text-sm bg-success/10 px-2 py-1 rounded border border-success/20">+${item.tasks?.points}</div>
+                <div class="text-success font-black text-sm bg-success/10 px-2 py-1 rounded shadow-sm border border-success/20">+${item.tasks?.points} <i class="fa-solid fa-coins text-yellow-500"></i></div>
             </div>
-            <div class="flex gap-2 mt-4">
-                <button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
-                <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-success text-white text-xs font-bold active-scale shadow-lg shadow-success/30">Duyệt & Cộng Điểm</button>
+            <div class="flex gap-2">
+                <button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-3 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale shadow-sm border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors">Yêu cầu làm lại</button>
+                <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-3 rounded-xl bg-primary text-white text-xs font-bold active-scale shadow-lg shadow-primary/30 hover:scale-105 transition-transform"><i class="fa-solid fa-check mr-1"></i> Duyệt luôn!</button>
             </div>
         </div>`;
     });
 }
 
 async function approveTask(logId, isApproved, username, points, taskName) {
-    showLoading(true); const status = isApproved ? 'Approved' : 'Rejected';
+    showLoading(true); 
+    const status = isApproved ? 'Approved' : 'Rejected';
     await supabaseClient.from('task_logs').update({ status: status, approved_by: currentUser.username }).eq('id', logId);
+    
     if (isApproved) {
         const { data: uData } = await supabaseClient.from('users').select('points').eq('username', username).single();
         if (uData) { 
@@ -565,238 +571,240 @@ async function approveTask(logId, isApproved, username, points, taskName) {
             await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: points, description: `Duyệt việc: ${taskName}` }]); 
         }
     }
-    refreshUserPoints(); showLoading(false); showToast(isApproved ? 'Đã duyệt, user đã có điểm!' : 'Đã từ chối.', isApproved ? 'success' : 'error'); loadApprovals();
+    showLoading(false); showToast(isApproved ? 'Đã duyệt cộng điểm!' : 'Đã từ chối!'); loadApprovals();
 }
 
 function renderAdminList(type, data) {
     const container = document.getElementById('admin-list-container'); container.innerHTML = '';
-    if (data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Chưa có dữ liệu.</div>';
+    if (data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có dữ liệu</div>';
     
     data.forEach(item => {
-        let title = '', subtitle = '', id = '', prefixHTML = '', actionHTML = '';
+        let title = '', subtitle = '', id = item.id, iconHTML = '';
         if (type === 'users') { 
-            id = item.username; title = item.name; 
-            subtitle = `<span class="bg-surface px-1.5 rounded items-center mr-1">${item.role}</span> <span class="text-yellow-500 font-bold">${item.points} pts</span>`; 
-            prefixHTML = `<div class="w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-inner overflow-hidden ${item.avatar ? 'bg-surface' : 'bg-gradient-to-tr from-primary to-purple-500'}">${item.avatar && item.avatar.trim() !== '' ? `<img src="${item.avatar}" class="w-full h-full object-cover">` : item.name.charAt(0)}</div>`; 
-            actionHTML = `<button onclick="openAdjustModal('${item.username}', '${item.name}')" class="w-8 h-8 rounded-lg bg-success/10 text-success flex items-center justify-center active-scale mr-1"><i class="fa-solid fa-coins text-xs"></i></button>`;
+            title = item.name; subtitle = `@${item.username} - ${item.points} pts - ${item.role}`; id = item.username; 
+            iconHTML = `<div class="w-10 h-10 rounded-full flex items-center justify-center bg-primary text-white shadow-inner font-bold">${item.name.charAt(0)}</div>`;
         }
         else if (type === 'tasks') { 
-            id = item.id; title = item.task_name; 
-            let freqBadge = item.frequency === 'Daily' ? 'Hàng ngày' : (item.frequency === 'Weekly' ? 'Hàng tuần' : (item.frequency === 'Monthly' ? 'Hàng tháng' : 'Sự vụ'));
-            subtitle = `<span class="bg-surface px-1.5 rounded">${freqBadge}</span> | <span class="text-success font-bold">+${item.points}</span> / <span class="text-red-400 font-bold">-${item.penalty}</span>`; 
-            prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-clipboard-list'}"></i></div>`; 
+            title = item.task_name; subtitle = `${item.frequency}: +${item.points} | -${item.penalty}`; 
+            iconHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary text-xl border border-borderline"><i class="${item.icon}"></i></div>`;
         }
         else if (type === 'rewards') { 
-            id = item.id; title = item.reward_name; 
-            subtitle = `<span class="text-yellow-500 font-bold">${item.cost} pts</span>`; 
-            prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-gift'}"></i></div>`; 
+            title = item.reward_name; subtitle = `Giá: ${item.cost} pts`; 
+            iconHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-amber-500 text-xl border border-borderline"><i class="${item.icon || 'fa-solid fa-gift'}"></i></div>`;
         }
-        
+
         window[`editData_${id}`] = item;
+        
+        let actionsHtml = `
+            <button onclick="openModal('${type}', window['editData_${id}'])" class="w-8 h-8 rounded-lg bg-surface text-main flex items-center justify-center active-scale border border-borderline hover:text-primary"><i class="fa-solid fa-pen text-xs"></i></button>
+            <button onclick="deleteData('${type}', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-500 flex items-center justify-center active-scale border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors"><i class="fa-solid fa-trash text-xs"></i></button>
+        `;
+
+        if (type === 'users') {
+            actionsHtml = `
+            <button onclick="openAdjustModal('${item.username}')" class="w-8 h-8 rounded-lg bg-surface text-main flex items-center justify-center active-scale border border-borderline hover:text-yellow-500" title="Chỉnh điểm"><i class="fa-solid fa-coins text-xs"></i></button>
+            ${actionsHtml}`;
+        }
+
         container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-4 flex justify-between items-center shadow-sm">
-            <div class="flex gap-3 items-center">
-                ${prefixHTML}
-                <div><h4 class="font-bold text-main text-sm mb-1">${title}</h4><div class="text-[10px] text-muted flex items-center">${subtitle}</div></div>
+        <div class="bg-card border border-borderline rounded-2xl p-4 flex justify-between items-center shadow-sm hover:border-primary/30 transition-colors">
+            <div class="flex gap-3 items-center min-w-0">
+                ${iconHTML}
+                <div class="min-w-0">
+                    <h4 class="font-bold text-main text-sm truncate max-w-[170px]">${title}</h4>
+                    <div class="text-[10px] text-muted mt-0.5 truncate max-w-[170px]">${subtitle}</div>
+                </div>
             </div>
-            <div class="flex gap-1.5">
-                ${actionHTML}
-                <button onclick="openModal('${type}', window['editData_${id}'])" class="w-8 h-8 rounded-lg bg-surface text-main flex items-center justify-center active-scale"><i class="fa-solid fa-pen text-xs"></i></button>
-                <button onclick="deleteData('${type}', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>
+            <div class="flex gap-2">
+                ${actionsHtml}
             </div>
         </div>`;
     });
 }
 
+
+let adminEditId = null;
+function openModal(type, editData = null) {
+    adminEditId = editData ? (type === 'users' ? editData.username : editData.id) : null;
+    const isEdit = !!editData; document.getElementById('modal-title').innerText = isEdit ? 'Cập nhật' : 'Thêm mới';
+    
+    let html = '';
+    if (type === 'users') {
+        html = `
+        <input type="text" id="inp-uuser" placeholder="Username (viết liền, ko dấu)" value="${isEdit ? editData.username : ''}" ${isEdit ? 'disabled' : ''} class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm mb-3 font-medium outline-none">
+        <input type="text" id="inp-upass" placeholder="Mật khẩu" value="${isEdit ? editData.password : ''}" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm mb-3 font-medium outline-none">
+        <input type="text" id="inp-uname" placeholder="Tên hiển thị" value="${isEdit ? editData.name : ''}" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm mb-3 font-medium outline-none">
+        <select id="inp-urole" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm outline-none font-medium mb-3">
+            <option value="User" ${isEdit && editData.role === 'User' ? 'selected' : ''}>Thành viên</option>
+            <option value="Admin" ${isEdit && editData.role === 'Admin' ? 'selected' : ''}>Quản trị (Admin)</option>
+            <option value="Moderator" ${isEdit && editData.role === 'Moderator' ? 'selected' : ''}>Kiểm duyệt (Reviewer)</option>
+        </select>`;
+    } else if (type === 'tasks') {
+        let optIcons = ''; ICONS.forEach(i => { optIcons += `<option value="${i}" ${isEdit && editData.icon === i ? 'selected' : ''}>${i.split('-').pop()}</option>`; });
+        html = `
+        <input type="text" id="inp-tname" placeholder="Tên công việc" value="${isEdit ? editData.task_name : ''}" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm mb-3 font-medium outline-none">
+        <div class="flex gap-2 w-full mb-3">
+            <input type="number" id="inp-tpts" placeholder="Điểm (+)" value="${isEdit ? editData.points : ''}" class="w-1/2 bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none text-success">
+            <input type="number" id="inp-tpen" placeholder="Phạt (-)" value="${isEdit ? editData.penalty : ''}" class="w-1/2 bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none text-red-500">
+        </div>
+        <select id="inp-ticon" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none mb-3 font-awesome">
+            ${optIcons}
+        </select>
+        <select id="inp-tfreq" onchange="handleFreqChange()" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none mb-3">
+            <option value="Daily" ${isEdit && editData.frequency === 'Daily' ? 'selected' : ''}>Hàng ngày</option>
+            <option value="Weekly" ${isEdit && editData.frequency === 'Weekly' ? 'selected' : ''}>Hàng tuần</option>
+            <option value="Adhoc" ${isEdit && editData.frequency === 'Adhoc' ? 'selected' : ''}>Sự vụ (Theo ngày)</option>
+        </select>
+        <div id="sched-container" class="w-full"></div>`;
+    } else if (type === 'rewards') {
+        let optIcons = ''; ICONS.forEach(i => { optIcons += `<option value="${i}" ${isEdit && editData.icon === i ? 'selected' : ''}>${i.split('-').pop()}</option>`; });
+        html = `
+        <input type="text" id="inp-rname" placeholder="Tên phần thưởng" value="${isEdit ? editData.reward_name : ''}" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm mb-3 font-medium outline-none">
+        <input type="number" id="inp-rcost" placeholder="Giá (Điểm xu)" value="${isEdit ? editData.cost : ''}" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm mb-3 font-bold outline-none text-yellow-500">
+        <select id="inp-ricon" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none mb-3 font-awesome">
+            ${optIcons}
+        </select>`;
+    }
+    
+    document.getElementById('modal-body').innerHTML = html;
+    document.getElementById('admin-modal').classList.remove('hidden'); document.getElementById('admin-modal').classList.add('flex');
+    
+    document.getElementById('modal-save-btn').onclick = () => saveData(type);
+    if (type === 'tasks') { 
+        handleFreqChange(); 
+        if(isEdit) {
+            const schedEl = document.getElementById('inp-tsched');
+            if (schedEl) schedEl.value = editData.schedule;
+        }
+    }
+}
+
 function handleFreqChange() {
     const freq = document.getElementById('inp-tfreq').value;
     const schedContainer = document.getElementById('sched-container');
-    if (freq === 'Daily') schedContainer.innerHTML = '';
+    if (freq === 'Daily') { schedContainer.innerHTML = ''; } 
     else if (freq === 'Weekly') {
         schedContainer.innerHTML = `
-            <select id="inp-tsched" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3">
-                <option value="1">Thứ 2</option><option value="2">Thứ 3</option><option value="3">Thứ 4</option>
-                <option value="4">Thứ 5</option><option value="5">Thứ 6</option><option value="6">Thứ 7</option><option value="7">Chủ Nhật</option>
-            </select>`;
-    } else if (freq === 'Monthly') {
-        schedContainer.innerHTML = `
-            <select id="inp-tsched" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3">
-                <option value="1">Tuần 1</option><option value="2">Tuần 2</option><option value="3">Tuần 3</option><option value="4">Tuần 4</option>
+            <select id="inp-tsched" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main font-medium text-sm outline-none mb-3">
+                <option value="1">Thứ 2</option><option value="2">Thứ 3</option><option value="3">Thứ 4</option><option value="4">Thứ 5</option>
+                <option value="5">Thứ 6</option><option value="6">Thứ 7</option><option value="7">Chủ nhật</option>
             </select>`;
     } else if (freq === 'Adhoc') {
-        schedContainer.innerHTML = `
-            <input id="inp-tsched" type="date" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3">
-        `;
+        schedContainer.innerHTML = `<input type="date" id="inp-tsched" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none mb-3">`;
     }
 }
 
-function selectIcon(iconClass) {
-    document.getElementById('inp-icon').value = iconClass;
-    document.querySelectorAll('.icon-option').forEach(el => { el.classList.remove('bg-primary', 'text-main', 'ring-2', 'ring-primary'); el.classList.add('bg-surface', 'text-muted'); });
-    const formattedId = iconClass.replace(/ /g, '-');
-    const selectedEl = document.getElementById('icon-' + formattedId);
-    if(selectedEl) { selectedEl.classList.remove('bg-surface', 'text-muted'); selectedEl.classList.add('bg-primary', 'text-main', 'ring-2', 'ring-primary'); }
-}
+function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); document.getElementById('admin-modal').classList.remove('flex'); }
 
-function openModal(type, item = null) {
-    const modal = document.getElementById('admin-modal'); document.getElementById('modal-title').innerText = item ? 'Chỉnh sửa' : 'Thêm mới';
-    const body = document.getElementById('modal-body'); const saveBtn = document.getElementById('modal-save-btn'); body.innerHTML = '';
-    
-    let iconGridHtml = '';
-    if (type === 'tasks' || type === 'rewards') {
-        iconGridHtml = `
-            <label class="block text-[10px] text-muted mb-2 font-bold tracking-wider">CHỌN THẾ TÂN (ICON)</label>
-            <div class="grid grid-cols-6 gap-2 mb-4" id="icon-picker">
-                ${ICONS.map(i => `<div onclick="selectIcon('${i}')" id="icon-${i.replace(/ /g, '-')}" class="icon-option w-full aspect-square flex items-center justify-center rounded-xl bg-surface cursor-pointer active-scale text-muted shadow-sm text-base"><i class="${i}"></i></div>`).join('')}
-            </div>
-            <input type="hidden" id="inp-icon" value="${item && item.icon ? item.icon : ICONS[0]}">
-        `;
-    }
-
+async function saveData(type) {
+    showLoading(true); let payload = {}, error;
     if (type === 'users') {
-        let roleOpts = currentUser.role === 'Admin' ? 
-            `<option value="User" ${item && item.role === 'User' ? 'selected' : ''}>User</option>
-             <option value="Moderator" ${item && item.role === 'Moderator' ? 'selected' : ''}>Moderator</option>
-             <option value="Admin" ${item && item.role === 'Admin' ? 'selected' : ''}>Admin</option>` : `<option value="User" selected>User</option>`;
-            
-        body.innerHTML = `
-            <input id="inp-username" type="text" placeholder="Tên user" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.username : ''}" ${item ? 'disabled' : ''}>
-            <input id="inp-name" type="text" placeholder="Tên hiển thị" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.name : ''}">
-            <select id="inp-role" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3">${roleOpts}</select>
-            <input id="inp-password" type="text" placeholder="Mật khẩu" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.password : ''}">
-            <input id="inp-avatar" type="text" placeholder="URL Hình Avatar" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none" value="${item && item.avatar ? item.avatar : ''}">
-        `;
+        payload = { username: document.getElementById('inp-uuser').value, password: document.getElementById('inp-upass').value, name: document.getElementById('inp-uname').value, role: document.getElementById('inp-urole').value };
+        if (!adminEditId) payload.points = 0;
+        if (adminEditId) { const { error: e } = await supabaseClient.from('users').update(payload).eq('username', adminEditId); error = e; } 
+        else { const { error: e } = await supabaseClient.from('users').insert([payload]); error = e; }
     } else if (type === 'tasks') {
-        body.innerHTML = `
-            <input id="inp-tname" type="text" placeholder="Tên việc" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.task_name : ''}">
-            ${iconGridHtml}
-            <select id="inp-tfreq" onchange="handleFreqChange()" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3">
-                <option value="Daily" ${item && item.frequency === 'Daily' ? 'selected' : ''}>Hàng ngày (Có phạt)</option>
-                <option value="Weekly" ${item && item.frequency === 'Weekly' ? 'selected' : ''}>Hàng tuần (Có phạt)</option>
-                <option value="Monthly" ${item && item.frequency === 'Monthly' ? 'selected' : ''}>Hàng tháng (Có phạt)</option>
-                <option value="Adhoc" ${item && item.frequency === 'Adhoc' ? 'selected' : ''}>Sự vụ / Làm thêm (Không phạt)</option>
-            </select>
-            <div id="sched-container"></div>
-            <div class="grid grid-cols-2 gap-3 mt-4">
-                <div><label class="block text-[10px] text-muted mb-1 font-bold">THƯỞNG (+)</label><input id="inp-tpoints" type="number" placeholder="Điểm" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-success" value="${item ? item.points : ''}"></div>
-                <div><label class="block text-[10px] text-muted mb-1 font-bold">PHẠT (-)</label><input id="inp-tpenalty" type="number" placeholder="Điểm" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-red-500" value="${item ? item.penalty : '0'}"></div>
-            </div>
-        `;
-        setTimeout(() => { handleFreqChange(); if (item && item.schedule && document.getElementById('inp-tsched')) document.getElementById('inp-tsched').value = item.schedule; selectIcon(item && item.icon ? item.icon : ICONS[0]); }, 10);
+        const schedEl = document.getElementById('inp-tsched');
+        payload = { task_name: document.getElementById('inp-tname').value, points: document.getElementById('inp-tpts').value || 0, penalty: document.getElementById('inp-tpen').value || 0, frequency: document.getElementById('inp-tfreq').value, schedule: schedEl ? schedEl.value : null, icon: document.getElementById('inp-ticon').value };
+        if (adminEditId) { const { error: e } = await supabaseClient.from('tasks').update(payload).eq('id', adminEditId); error = e; } 
+        else { const { error: e } = await supabaseClient.from('tasks').insert([payload]); error = e; }
     } else if (type === 'rewards') {
-        body.innerHTML = `
-            <input id="inp-rname" type="text" placeholder="Tên quà" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.reward_name : ''}">
-            ${iconGridHtml}
-            <label class="block text-[10px] text-muted mb-1 mt-3 font-bold">GIÁ ĐỔI QUÀ</label>
-            <input id="inp-rcost" type="number" placeholder="Pts" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-yellow-500" value="${item ? item.cost : ''}">
-        `;
-        setTimeout(() => { selectIcon(item && item.icon ? item.icon : ICONS[19]); }, 10);
+        payload = { reward_name: document.getElementById('inp-rname').value, cost: document.getElementById('inp-rcost').value || 0, icon: document.getElementById('inp-ricon').value };
+        if (adminEditId) { const { error: e } = await supabaseClient.from('rewards').update(payload).eq('id', adminEditId); error = e; } 
+        else { const { error: e } = await supabaseClient.from('rewards').insert([payload]); error = e; }
     }
     
-    modal.classList.remove('hidden'); saveBtn.onclick = () => saveData(type, item ? (type==='users' ? item.username : item.id) : null);
-}
-
-function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
-
-async function saveData(type, id) {
-    showLoading(true); let error = null;
-    try {
-        if (type === 'users') { 
-            const data = { username: document.getElementById('inp-username').value.trim(), name: document.getElementById('inp-name').value, role: document.getElementById('inp-role').value, password: document.getElementById('inp-password').value, avatar: document.getElementById('inp-avatar').value }; 
-            if (id) { const res = await supabaseClient.from('users').update(data).eq('username', id); error = res.error; } 
-            else { const res = await supabaseClient.from('users').insert([data]); error = res.error; } 
-        } else if (type === 'tasks') { 
-            const data = { task_name: document.getElementById('inp-tname').value, icon: document.getElementById('inp-icon').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null, points: document.getElementById('inp-tpoints').value, penalty: document.getElementById('inp-tfreq').value === 'Adhoc' ? 0 : (document.getElementById('inp-tpenalty').value || 0) }; 
-            if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; } 
-            else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; } 
-        } else if (type === 'rewards') { 
-            const data = { reward_name: document.getElementById('inp-rname').value, icon: document.getElementById('inp-icon').value, cost: document.getElementById('inp-rcost').value }; 
-            if (id) { const res = await supabaseClient.from('rewards').update(data).eq('id', id); error = res.error; } 
-            else { const res = await supabaseClient.from('rewards').insert([data]); error = res.error; } 
-        }
-    } catch (err) { error = err; }
-    showLoading(false); if (error) return showToast(error.message, 'error');
-    showToast('Lưu thành công!', 'mega-success'); closeModal(); loadAdminData(type);
+    showLoading(false);
+    if (error) showToast('Lỗi lưu Data!', 'error'); else { showToast('Lưu thành công!'); closeModal(); loadAdminData(type); }
 }
 
 async function deleteData(type, id) {
-    if (!confirm('Chắc chắn xoá luôn ?')) return;
-    showLoading(true); let error = null;
-    if (type === 'users') { const res = await supabaseClient.from('users').delete().eq('username', id); error = res.error; }
-    else if (type === 'tasks') { const res = await supabaseClient.from('tasks').delete().eq('id', id); error = res.error; }
-    else if (type === 'rewards') { const res = await supabaseClient.from('rewards').delete().eq('id', id); error = res.error; }
-    showLoading(false); if (error) return showToast(error.message, 'error');
-    showToast('Đã xoá!'); loadAdminData(type);
-}
-
-// ------ TÍNH NĂNG ADMIN MỚI -------
-function openAdjustModal(username, name) {
-    window.currentAdjustUser = username;
-    document.getElementById('adj-username').innerText = name;
-    document.getElementById('adj-amount').value = '';
-    document.getElementById('adj-reason').value = '';
-    document.getElementById('adjust-modal').classList.remove('hidden');
-    document.getElementById('adjust-modal').classList.add('flex');
-}
-
-function closeAdjustModal() {
-    document.getElementById('adjust-modal').classList.add('hidden');
-    document.getElementById('adjust-modal').classList.remove('flex');
-}
-
-async function saveAdjustPoints() {
-    const amount = parseInt(document.getElementById('adj-amount').value);
-    const type = document.getElementById('adj-type').value;
-    const reason = document.getElementById('adj-reason').value.trim();
-    if (!amount || amount <= 0) return showToast('Nhập số điểm hợp lệ!', 'error');
-    if (!reason) return showToast('Vui lòng nhập lý do!', 'error');
-
+    if(!confirm('Chắc chắn muốn xoá luôn? KHÔNG THỂ CHUYỂN HOÀN ĐÂY NHÉ!')) return;
     showLoading(true);
-    const { data: uData } = await supabaseClient.from('users').select('points').eq('username', window.currentAdjustUser).single();
-    if (uData) {
-        const newPoints = type === 'add' ? uData.points + amount : Math.max(0, uData.points - amount);
-        const logType = type === 'add' ? 'Earn' : 'Penalty';
-        await supabaseClient.from('users').update({ points: newPoints }).eq('username', window.currentAdjustUser);
-        await supabaseClient.from('transactions').insert([{ username: window.currentAdjustUser, type: logType, amount: amount, description: `[Admin/Mod] ${reason}` }]);
-    }
+    let error;
+    if (type === 'users') { const { error: e } = await supabaseClient.from('users').delete().eq('username', id); error = e; } 
+    else if (type === 'tasks') { const { error: e } = await supabaseClient.from('tasks').delete().eq('id', id); error = e; } 
+    else if (type === 'rewards') { const { error: e } = await supabaseClient.from('rewards').delete().eq('id', id); error = e; }
     showLoading(false);
-    showToast('Cập nhật điểm cái rẹt thành công!', 'mega-success');
-    closeAdjustModal(); loadAdminData('users');
+    if (error) showToast('Lỗi xoá Data!', 'error'); else { showToast('Đã bay màu luôn rùi!'); loadAdminData(type); }
 }
 
 async function resetAllPoints() {
-    if (!confirm('CẢNH BÁO: Hành động này sẽ đưa ĐIỂM CỦA TẤT CẢ USER VỀ 0. Dữ liệu giao dịch cũ vẫn được giữ nhưng điểm hiện tại sẽ mất. Bạn chắc chắn chứ?')) return;
+    if(!confirm('⛔ CẢNH BÁO ĐỎ ⛔\nBạn sắp đưa điểm toàn bộ thành viên về Số 0 Tròn Trĩnh! Chắc chứ?')) return;
     showLoading(true);
-    const { data: users } = await supabaseClient.from('users').select('username');
-    if (users) {
-        for (let u of users) {
-             await supabaseClient.from('users').update({ points: 0 }).eq('username', u.username);
-             await supabaseClient.from('transactions').insert([{ username: u.username, type: 'Penalty', amount: 0, description: `HỆ THỐNG RESET ĐIỂM VÀO ĐẦU KỲ` }]);
-        }
-    }
+    const { error } = await supabaseClient.rpc('reset_all_points');
     showLoading(false);
-    showToast('Boom! Đã reset điểm toàn hệ thống về 0.', 'mega-success');
+    if (error) {
+        showToast('Có lỗi rồi, hãy tự cập nhật ở CSDL nếu cần!', 'error');
+    } else {
+        showToast('BÙM! Điểm mọi người đã về KHÔNG.', 'success');
+        refreshUserPoints();
+        loadAdminData('users');
+    }
+}
+
+let currAdjUser = null;
+function openAdjustModal(username) {
+    currAdjUser = username;
+    document.getElementById('adj-username').innerText = username;
+    document.getElementById('adj-amount').value = '';
+    document.getElementById('adj-reason').value = '';
+    document.getElementById('adjust-modal').classList.remove('hidden'); document.getElementById('adjust-modal').classList.add('flex');
+}
+
+function closeAdjustModal() {
+    document.getElementById('adjust-modal').classList.add('hidden'); document.getElementById('adjust-modal').classList.remove('flex');
+}
+
+async function saveAdjustPoints() {
+    const amount = Number(document.getElementById('adj-amount').value);
+    const type = document.getElementById('adj-type').value; 
+    const reason = document.getElementById('adj-reason').value.trim();
+
+    if (!amount || amount <= 0) return showToast('Nhập số lớn hơn 0!', 'error');
+    if (!reason) return showToast('Bắt buộc nhập lý do!', 'error');
+
+    showLoading(true);
+    const { data: uData } = await supabaseClient.from('users').select('points').eq('username', currAdjUser).single();
+    if (!uData) { showLoading(false); return showToast('Không tìm thấy User', 'error'); }
+
+    let newPts = uData.points;
+    const transType = type === 'add' ? 'Earn' : 'Penalty';
+    
+    if (type === 'add') { newPts += amount; } else { newPts -= amount; }
+
+    const { error: updErr } = await supabaseClient.from('users').update({ points: newPts }).eq('username', currAdjUser);
+    if (updErr) { showLoading(false); return showToast('Lỗi Update điểm!', 'error'); }
+
+    await supabaseClient.from('transactions').insert([{ 
+        username: currAdjUser, 
+        type: transType, 
+        amount: amount, 
+        description: `Admin điều chỉnh: ${reason}` 
+    }]);
+
+    showLoading(false);
+    showToast('Chốt điểm thành công!');
+    closeAdjustModal();
+    if(currentUser.username === currAdjUser) refreshUserPoints();
     loadAdminData('users');
 }
 
-window.onload = () => { setTimeout(checkLoginStatus, 500); };
-
-// --- THEMES ---
-const THEMES = [
-    { id: 'dark', name: 'Đêm sâu', icon: 'fa-moon', bg: '#1A1D24', primary: '#3B82F6' },
-    { id: 'light', name: 'Sáng sủa', icon: 'fa-sun', bg: '#FFFFFF', primary: '#8B5CF6' },
-    { id: 'sakura', name: 'Hoa anh đào', icon: 'fa-spa', bg: '#FFE4E6', primary: '#F43F5E' },
-    { id: 'matcha', name: 'Trà xanh mộc', icon: 'fa-leaf', bg: '#D1FAE5', primary: '#10B981' },
-    { id: 'cyberpunk', name: 'Neon Cyber', icon: 'fa-bolt', bg: '#1E1B4B', primary: '#EAB308' }
-];
 
 function openThemeModal() {
     const container = document.getElementById('theme-options-container'); container.innerHTML = '';
-    const currentMode = localStorage.getItem('housework_theme') || 'dark';
-    THEMES.forEach(t => {
-        const isSelected = currentMode === t.id;
+    const themes = [
+        { id: 'dark', name: 'Dark Mode', primary: '#3B82F6', icon: 'fa-moon' }, { id: 'light', name: 'Light Mode', primary: '#8B5CF6', icon: 'fa-sun' },
+        { id: 'sakura', name: 'Màu Hường', primary: '#F43F5E', icon: 'fa-heart' }, { id: 'matcha', name: 'Matcha Trà Xanh', primary: '#10B981', icon: 'fa-leaf' },
+        { id: 'cyberpunk', name: 'Hi-Tech', primary: '#EAB308', icon: 'fa-bolt' }
+    ];
+    
+    const currTheme = localStorage.getItem('housework_theme') || 'dark';
+    
+    themes.forEach(t => {
+        const isSelected = currTheme === t.id;
         container.innerHTML += `
-        <div onclick="setAppTheme('${t.id}')" class="flex items-center justify-between p-4 rounded-xl border ${isSelected ? 'border-primary bg-primary/10' : 'border-borderline bg-input'} cursor-pointer active-scale mb-2 transition-all shadow-sm">
+        <div onclick="setAppTheme('${t.id}')" class="flex items-center justify-between p-4 rounded-xl border ${isSelected ? 'border-primary bg-primary/10' : 'border-borderline bg-input'} cursor-pointer active-scale mb-2 transition-all">
             <div class="flex items-center gap-4">
                 <div class="w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md" style="background-color: ${t.primary};"><i class="fa-solid ${t.icon}"></i></div>
                 <div class="font-bold text-main">${t.name}</div>
@@ -804,12 +812,19 @@ function openThemeModal() {
             ${isSelected ? '<i class="fa-solid fa-circle-check text-primary text-xl"></i>' : ''}
         </div>`;
     });
+
     document.getElementById('theme-modal').classList.remove('hidden'); document.getElementById('theme-modal').classList.add('flex');
 }
 
 function closeThemeModal() { document.getElementById('theme-modal').classList.add('hidden'); document.getElementById('theme-modal').classList.remove('flex'); }
 
 function setAppTheme(themeId) {
-    if (themeId === 'dark') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', themeId);
+    if (themeId === 'dark') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', themeId);
     localStorage.setItem('housework_theme', themeId); openThemeModal();
 }
+
+const savedTheme = localStorage.getItem('housework_theme');
+if (savedTheme && savedTheme !== 'dark') document.documentElement.setAttribute('data-theme', savedTheme);
+
+window.onload = checkLoginStatus;
