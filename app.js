@@ -379,7 +379,7 @@ async function loadReportData(startDate, endDate) {
         filterSelect.innerHTML = `<option value="${currentUser.username}">Việc của tôi (${currentUser.name})</option>`;
     } else {
         let html = '<option value="all">Tất cả thành viên</option>';
-        (users || []).forEach(u => { html += `<option value="${u.username}">Thành viên: ${u.name}</option>`; });
+        (users || []).forEach(u => { html += `<option value="${u.username}">${u.name}</option>`; });
         filterSelect.innerHTML = html;
         if (existingVal) filterSelect.value = existingVal;
     }
@@ -446,7 +446,8 @@ function renderTaskReport() {
                         completedMap[t.id].pts += t.points;
                     }
                 } else { 
-                    if (t.penalty > 0 && filterUser === 'all') { 
+                    const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`;
+                    if (t.penalty > 0 && filterUser === 'all' && dateStr < todayStr) { 
                          missedTotal++; 
                          missedMap[t.id].times++;
                          missedMap[t.id].pts += t.penalty;
@@ -565,7 +566,7 @@ async function loadAdminData(type) {
 }
 
 async function loadApprovals() {
-    showLoading(true); const { data, error } = await supabaseClient.from('task_logs').select('*, tasks(task_name, points, icon), users(name)').eq('status', 'Pending Approval'); showLoading(false);
+    showLoading(true); const { data, error } = await supabaseClient.from('task_logs').select('*, tasks(*), users(*)').eq('status', 'Pending Approval'); showLoading(false);
     const container = document.getElementById('admin-list-container'); container.innerHTML = '';
     
     if (error) return showToast(error.message, 'error'); 
@@ -586,23 +587,29 @@ async function loadApprovals() {
             </div>
             <div class="flex gap-2 mt-4">
                 <button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
-                <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-success text-white text-xs font-bold active-scale shadow-lg shadow-success/30">Duyệt & Cộng Điểm</button>
+                <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}', ${item.tasks?.calc_admin ?? true})" class="flex-1 py-2 rounded-xl bg-success text-white text-xs font-bold active-scale shadow-lg shadow-success/30">Duyệt & Cộng Điểm</button>
             </div>
         </div>`;
     });
 }
 
-async function approveTask(logId, isApproved, username, points, taskName) {
+async function approveTask(logId, isApproved, username, points, taskName, calcAdmin = true) {
     showLoading(true); const status = isApproved ? 'Approved' : 'Rejected';
     await supabaseClient.from('task_logs').update({ status: status, approved_by: currentUser.username }).eq('id', logId);
     if (isApproved) {
-        const { data: uData } = await supabaseClient.from('users').select('points').eq('username', username).single();
+        const { data: uData } = await supabaseClient.from('users').select('points, role').eq('username', username).single();
         if (uData) { 
-            await supabaseClient.from('users').update({ points: uData.points + points }).eq('username', username); 
-            await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: points, description: `Duyệt việc: ${taskName}` }]); 
+            let finalPoints = points;
+            if (calcAdmin === false && (uData.role === 'Admin' || uData.role === 'Moderator')) {
+                finalPoints = 0;
+            }
+            if (finalPoints > 0) {
+                await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username); 
+                await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: `Duyệt việc: ${taskName}` }]); 
+            }
         }
     }
-    refreshUserPoints(); showLoading(false); showToast(isApproved ? 'Đã duyệt, user đã có điểm!' : 'Đã từ chối.', isApproved ? 'success' : 'error'); loadApprovals();
+    refreshUserPoints(); showLoading(false); showToast(isApproved ? 'Đã xử lý!' : 'Đã từ chối.', isApproved ? 'success' : 'error'); loadApprovals();
 }
 
 function renderAdminList(type, data) {
@@ -718,6 +725,13 @@ function openModal(type, item = null) {
                 <div><label class="block text-[10px] text-muted mb-1 font-bold">THƯỞNG (+)</label><input id="inp-tpoints" type="number" placeholder="Điểm" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-success" value="${item ? item.points : ''}"></div>
                 <div><label class="block text-[10px] text-muted mb-1 font-bold">PHẠT (-)</label><input id="inp-tpenalty" type="number" placeholder="Điểm" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-red-500" value="${item ? item.penalty : '0'}"></div>
             </div>
+            <div class="mt-4">
+                <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tính điểm cho Admin & Moderator</label>
+                <select id="inp-tcalcadmin" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none">
+                    <option value="true" ${!item || item.calc_admin !== false ? 'selected' : ''}>Có cộng/trừ bình thường</option>
+                    <option value="false" ${item && item.calc_admin === false ? 'selected' : ''}>Không tính điểm</option>
+                </select>
+            </div>
         `;
         setTimeout(() => { handleFreqChange(); if (item && item.schedule && document.getElementById('inp-tsched')) document.getElementById('inp-tsched').value = item.schedule; selectIcon(item && item.icon ? item.icon : ICONS[0]); }, 10);
     } else if (type === 'rewards') {
@@ -743,7 +757,7 @@ async function saveData(type, id) {
             if (id) { const res = await supabaseClient.from('users').update(data).eq('username', id); error = res.error; } 
             else { const res = await supabaseClient.from('users').insert([data]); error = res.error; } 
         } else if (type === 'tasks') { 
-            const data = { task_name: document.getElementById('inp-tname').value, icon: document.getElementById('inp-icon').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null, points: document.getElementById('inp-tpoints').value, penalty: (document.getElementById('inp-tpenalty').value || 0) }; 
+            const data = { task_name: document.getElementById('inp-tname').value, icon: document.getElementById('inp-icon').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null, points: document.getElementById('inp-tpoints').value, penalty: (document.getElementById('inp-tpenalty').value || 0), calc_admin: document.getElementById('inp-tcalcadmin').value === 'true' }; 
             if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; } 
             else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; } 
         } else if (type === 'rewards') { 
