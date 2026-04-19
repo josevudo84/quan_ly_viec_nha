@@ -708,10 +708,10 @@ function openModal(type, item = null) {
             <input id="inp-tname" type="text" placeholder="Tên việc" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.task_name : ''}">
             ${iconGridHtml}
             <select id="inp-tfreq" onchange="handleFreqChange()" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3">
-                <option value="Daily" ${item && item.frequency === 'Daily' ? 'selected' : ''}>Hàng ngày (Có phạt)</option>
-                <option value="Weekly" ${item && item.frequency === 'Weekly' ? 'selected' : ''}>Hàng tuần (Có phạt)</option>
-                <option value="Monthly" ${item && item.frequency === 'Monthly' ? 'selected' : ''}>Hàng tháng (Có phạt)</option>
-                <option value="Adhoc" ${item && item.frequency === 'Adhoc' ? 'selected' : ''}>Sự vụ / Làm thêm (Không phạt)</option>
+                <option value="Daily" ${item && item.frequency === 'Daily' ? 'selected' : ''}>Hàng ngày</option>
+                <option value="Weekly" ${item && item.frequency === 'Weekly' ? 'selected' : ''}>Hàng tuần</option>
+                <option value="Monthly" ${item && item.frequency === 'Monthly' ? 'selected' : ''}>Hàng tháng</option>
+                <option value="Adhoc" ${item && item.frequency === 'Adhoc' ? 'selected' : ''}>Sự vụ / Làm thêm</option>
             </select>
             <div id="sched-container"></div>
             <div class="grid grid-cols-2 gap-3 mt-4">
@@ -743,7 +743,7 @@ async function saveData(type, id) {
             if (id) { const res = await supabaseClient.from('users').update(data).eq('username', id); error = res.error; } 
             else { const res = await supabaseClient.from('users').insert([data]); error = res.error; } 
         } else if (type === 'tasks') { 
-            const data = { task_name: document.getElementById('inp-tname').value, icon: document.getElementById('inp-icon').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null, points: document.getElementById('inp-tpoints').value, penalty: document.getElementById('inp-tfreq').value === 'Adhoc' ? 0 : (document.getElementById('inp-tpenalty').value || 0) }; 
+            const data = { task_name: document.getElementById('inp-tname').value, icon: document.getElementById('inp-icon').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null, points: document.getElementById('inp-tpoints').value, penalty: (document.getElementById('inp-tpenalty').value || 0) }; 
             if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; } 
             else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; } 
         } else if (type === 'rewards') { 
