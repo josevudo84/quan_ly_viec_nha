@@ -1,4 +1,3 @@
-// ====== SUPABASE CONFIG ======
 const SUPABASE_URL = 'https://akgrmxazfgwbnpqupmor.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_L6pJkJPwbOoEDDbNXhL_PQ_oq2nm-rC';
 const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
@@ -185,7 +184,9 @@ async function loadHomeData() {
             if (t.frequency === 'Daily') { isDue = true; periodId = todayStr; }
             else if (t.frequency === 'Weekly' && t.schedule == dayOfWeekAdjusted) { isDue = true; periodId = todayStr; }
             else if (t.frequency === 'Monthly' && t.schedule == weekOfMonth) { isDue = true; periodId = weekStr; }
-            else if (t.frequency === 'Adhoc' && t.schedule === todayStr) { isDue = true; periodId = todayStr; }
+            else if (t.frequency === 'Adhoc') {
+                if (!t.schedule || t.schedule === todayStr) { isDue = true; periodId = todayStr; }
+            }
             
             if (isDue) {
                 let logStatus = 'Not Done', completedByName = '';

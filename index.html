@@ -115,8 +115,22 @@
       <div id="reminder-box" class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 flex items-start gap-3 hidden">
         <i class="fa-solid fa-bell text-amber-500 mt-0.5 animate-bounce"></i><div><h4 class="text-amber-500 font-bold text-sm">Nhắc nhở xíu!</h4><p class="text-xs text-amber-500/80 mt-1">Tranh thủ xử lý việc hôm nay để ẵm điểm nhé!</p></div>
       </div>
-      <div class="flex justify-between items-end mb-4"><h2 class="text-lg font-bold text-main">Việc cần làm hôm nay</h2></div>
-      <div id="home-tasks-container" class="space-y-3 mb-8"></div>
+      
+      <div class="mb-6">
+          <h2 class="text-lg font-bold text-main mb-3 flex items-center gap-2"><i class="fa-solid fa-calendar-day text-primary"></i> Việc hàng ngày phải làm</h2>
+          <div id="home-daily-container" class="space-y-3"></div>
+      </div>
+      
+      <div class="mb-6">
+          <h2 class="text-lg font-bold text-main mb-3 flex items-center gap-2"><i class="fa-solid fa-calendar-week text-primary"></i> Việc hàng tuần / tháng</h2>
+          <div id="home-weekly-container" class="space-y-3"></div>
+      </div>
+
+      <div class="mb-8">
+          <h2 class="text-lg font-bold text-main mb-3 flex items-center gap-2"><i class="fa-solid fa-star text-yellow-500"></i> Việc làm thêm / Sự vụ</h2>
+          <div id="home-adhoc-container" class="space-y-3"></div>
+      </div>
+
       <div class="flex justify-between items-end mb-4"><h2 class="text-lg font-bold text-main">Đổi quà</h2></div>
       <div id="home-rewards-container" class="grid grid-cols-2 gap-3"></div>
     </section>
