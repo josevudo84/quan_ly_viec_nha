@@ -169,9 +169,13 @@ async function loadHomeData() {
                     if (log) { logStatus = log.status; completedByName = log.users?.name || log.username; }
                 }
                 const formattedTask = { id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, status: logStatus, completedByName, periodId, frequency: t.frequency, icon: t.icon || 'fa-solid fa-clipboard-list' };
-                if (t.frequency === 'Daily') dailyTasks.push(formattedTask);
-                else if (t.frequency === 'Weekly' || t.frequency === 'Monthly') weeklyTasks.push(formattedTask);
-                else if (t.frequency === 'Adhoc') adhocTasks.push(formattedTask);
+                if (!t.penalty || Number(t.penalty) <= 0) {
+                    adhocTasks.push(formattedTask);
+                } else if (t.frequency === 'Daily') {
+                    dailyTasks.push(formattedTask);
+                } else {
+                    weeklyTasks.push(formattedTask);
+                }
             }
         });
     }
