@@ -362,7 +362,14 @@ async function loadReportData(startDate, endDate) {
     showLoading(false);
     document.getElementById('report-period').innerText = `${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`; 
     
-    currentReportData = { tasks: tasks || [], logs: logs || [], startDate, endDate, users: users || [] };
+    const { data: firstLog } = await supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
+    let appStartDate = null;
+    if (firstLog && firstLog.length > 0) {
+        appStartDate = new Date(firstLog[0].created_at);
+        appStartDate.setHours(0,0,0,0);
+    }
+
+    currentReportData = { tasks: tasks || [], logs: logs || [], startDate, endDate, users: users || [], appStartDate };
 
     // Set up filter dropdown
     const filterSelect = document.getElementById('report-user-filter');
@@ -412,7 +419,12 @@ function renderTaskReport() {
         missedMap[t.id] = { name: t.task_name, icon: t.icon, times: 0, pts: 0 };
     });
 
-    for (let d = new Date(startDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
+    let effectiveStartDate = new Date(startDate);
+    if (currentReportData.appStartDate && effectiveStartDate < currentReportData.appStartDate) {
+        effectiveStartDate = new Date(currentReportData.appStartDate);
+    }
+    
+    for (let d = new Date(effectiveStartDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
         const dayOfWeek = d.getDay(); const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
         const weekOfMonth = Math.ceil(d.getDate() / 7); 
         const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; 
@@ -434,7 +446,7 @@ function renderTaskReport() {
                         completedMap[t.id].pts += t.points;
                     }
                 } else { 
-                    if (t.penalty > 0) { 
+                    if (t.penalty > 0 && filterUser === 'all') { 
                          missedTotal++; 
                          missedMap[t.id].times++;
                          missedMap[t.id].pts += t.penalty;
