@@ -228,7 +228,7 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
         if (t.status === 'Not Done' && t.penalty > 0) hasPending = true;
         let rightColHtml = '';
         if (t.status === 'Not Done') { 
-            rightColHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xl active-scale hover:bg-primary hover:text-white transition-colors shadow-sm ml-2 cursor-pointer border border-primary/20"><i class="fa-solid fa-check"></i></button>`; 
+            rightColHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-12 h-12 rounded-[16px] bg-primary/10 text-primary flex items-center justify-center text-xl active-scale hover:bg-primary hover:text-white hover:rotate-12 transition-all shadow-sm ml-2 cursor-pointer border border-primary/20"><i class="fa-solid fa-hand-pointer"></i></button>`; 
         } else if (t.status === 'Pending Approval') { 
             rightColHtml = `<div class="flex flex-col items-end ml-2">
                 <span class="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20"><i class="fa-solid fa-clock mr-1"></i>Chờ</span>
@@ -271,7 +271,11 @@ async function submitTask(taskId, periodId) {
     if (existing && existing.length > 0) { showLoading(false); return showToast('Việc này đã có người xí rồi!', 'error'); }
     const { error } = await supabaseClient.from('task_logs').insert([{ task_id: taskId, period_id: periodId, username: currentUser.username, status: 'Pending Approval' }]);
     showLoading(false);
-    if (error) showToast('Lỗi: ' + error.message, 'error'); else { showToast('Đã gửi, chờ duyệt nhé!', 'success'); loadHomeData(); }
+    if (error) showToast('Lỗi: ' + error.message, 'error'); else { 
+        showToast('Hay quá! Chờ Admin duyệt để nhận thưởng liền tay!', 'mega-success'); 
+        if (typeof confetti === 'function') confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, zIndex: 9999, colors: ['#10B981', '#3B82F6', '#F59E0B', '#EAB308'] });
+        loadHomeData(); 
+    }
 }
 
 function renderRewards(rewards) {
