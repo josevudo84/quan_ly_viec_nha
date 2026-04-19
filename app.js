@@ -116,11 +116,12 @@ async function saveAvatar() {
     updateAvatarHeader(); closeAvatarModal(); showToast('Cập nhật avatar thành công!');
 }
 
+let currentReportData = { tasks: [], logs: [], startDate: null, endDate: null, users: [] };
+
 function initApp() {
     document.getElementById('user-name').innerText = currentUser.name; 
     document.getElementById('user-role').innerText = currentUser.role || 'User'; 
     document.getElementById('user-points').innerText = currentUser.points;
-    document.getElementById('report-owner-label').innerText = (currentUser.role === 'Admin' || currentUser.role === 'Moderator') ? 'mọi người' : 'tôi';
     
     updateAvatarHeader(); setupRealtimeListener();
     if (currentUser.role === 'Admin' || currentUser.role === 'Moderator') { 
@@ -334,9 +335,22 @@ async function loadReportData(startDate, endDate) {
     const { data: tasks } = await supabaseClient.from('tasks').select('*'); 
     
     showLoading(false);
+    document.getElementById('report-period').innerText = `${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`; 
     
-    const actualEndDate = endDate > new Date() ? new Date() : endDate;
-    let actualStartDate = new Date(startDate);
+    currentReportData = { tasks: tasks || [], logs: logs || [], startDate, endDate, users: users || [] };
+
+    // Set up filter dropdown
+    const filterSelect = document.getElementById('report-user-filter');
+    const existingVal = filterSelect.value;
+    filterSelect.innerHTML = '';
+    if (currentUser.role === 'User') {
+        filterSelect.innerHTML = `<option value="${currentUser.username}">Việc của tôi (${currentUser.name})</option>`;
+    } else {
+        let html = '<option value="all">Tất cả thành viên</option>';
+        (users || []).forEach(u => { html += `<option value="${u.username}">Thành viên: ${u.name}</option>`; });
+        filterSelect.innerHTML = html;
+        if (existingVal) filterSelect.value = existingVal;
+    }
     
     const reportData = {}; 
     if(users) users.forEach(u => reportData[u.username] = { name: u.name, earned: 0, spent: 0, penalty: 0, currentPoints: u.points });
@@ -349,21 +363,37 @@ async function loadReportData(startDate, endDate) {
         } 
     });
     const leaderboard = Object.keys(reportData).map(k => ({ username: k, ...reportData[k] })).sort((a, b) => b.earned - a.earned);
+    
+    renderLeaderboard(leaderboard);
+    renderTaskReport();
+}
 
-    const logMap = {}; 
-    if (logs) logs.forEach(l => { if (l.status !== 'Rejected') logMap[l.task_id + '_' + l.period_id] = true; });
+function renderTaskReport() {
+    const filterUser = document.getElementById('report-user-filter').value;
+    const { tasks, logs, startDate, endDate } = currentReportData;
+    const actualEndDate = endDate > new Date() ? new Date() : endDate;
     
-    let completedTasks = 0, missedPenaltyTasks = 0, missedFreeTasks = 0; 
-    const taskBreakdown = {};
-    if (tasks) tasks.forEach(t => taskBreakdown[t.id] = { name: t.task_name, completed: 0, missedPen: 0, missedFree: 0, penaltyAmount: t.penalty });
-    
-    for (let d = new Date(actualStartDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
+    const logMap = {};
+    logs.forEach(l => {
+        if (l.status === 'Approved') logMap[l.task_id + '_' + l.period_id] = l;
+    });
+
+    let completedTotal = 0, missedTotal = 0;
+    const completedMap = {}; 
+    const missedMap = {}; 
+
+    tasks.forEach(t => {
+        completedMap[t.id] = { name: t.task_name, icon: t.icon, times: 0, pts: 0 };
+        missedMap[t.id] = { name: t.task_name, icon: t.icon, times: 0, pts: 0 };
+    });
+
+    for (let d = new Date(startDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
         const dayOfWeek = d.getDay(); const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
         const weekOfMonth = Math.ceil(d.getDate() / 7); 
         const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; 
         const weekStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-W${weekOfMonth}`; 
         
-        if (tasks) tasks.forEach(t => { 
+        tasks.forEach(t => { 
             let isDue = false, pId = ''; 
             if (t.frequency === 'Daily') { isDue = true; pId = dateStr; } 
             else if (t.frequency === 'Weekly' && t.schedule == dayOfWeekAdjusted) { isDue = true; pId = dateStr; } 
@@ -371,53 +401,62 @@ async function loadReportData(startDate, endDate) {
             else if (t.frequency === 'Adhoc' && t.schedule === dateStr) { isDue = true; pId = dateStr; }
             
             if (isDue) { 
-                if (logMap[t.id + '_' + pId]) { completedTasks++; taskBreakdown[t.id].completed++; } 
-                else { 
-                    if (t.penalty > 0) { missedPenaltyTasks++; taskBreakdown[t.id].missedPen++; } 
-                    else { missedFreeTasks++; taskBreakdown[t.id].missedFree++; } 
+                const log = logMap[t.id + '_' + pId];
+                if (log) { 
+                    if (filterUser === 'all' || log.username === filterUser) {
+                        completedTotal++; 
+                        completedMap[t.id].times++;
+                        completedMap[t.id].pts += t.points;
+                    }
+                } else { 
+                    if (t.penalty > 0) { 
+                         missedTotal++; 
+                         missedMap[t.id].times++;
+                         missedMap[t.id].pts += t.penalty;
+                    } 
                 } 
             } 
         });
     }
-    
-    const taskStats = { 
-        completed: completedTasks, missedPen: missedPenaltyTasks, missedFree: missedFreeTasks, 
-        breakdown: Object.values(taskBreakdown).filter(t => t.completed > 0 || t.missedPen > 0 || t.missedFree > 0) 
-    };
-    
-    document.getElementById('report-period').innerText = `${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`; 
-    renderLeaderboard(leaderboard); renderTaskStats(taskStats);
-}
 
-function renderTaskStats(taskStats) {
-    document.getElementById('stat-completed').innerText = taskStats.completed; 
-    document.getElementById('stat-missed-pen').innerText = taskStats.missedPen; 
-    document.getElementById('stat-missed-free').innerText = taskStats.missedFree;
-    
-    const container = document.getElementById('stat-breakdown'); container.innerHTML = '';
-    if(taskStats.breakdown.length === 0) { container.innerHTML = '<div class="text-center text-muted text-xs py-4">Trống trơn.</div>'; return; }
-    
-    taskStats.breakdown.sort((a,b) => (b.completed + b.missedPen + b.missedFree) - (a.completed + a.missedPen + a.missedFree)).forEach(t => {
-        const total = t.completed + t.missedPen + t.missedFree; const percent = total === 0 ? 0 : Math.round((t.completed / total) * 100);
-        
-        container.innerHTML += `
-        <div class="bg-input rounded-xl p-3 border border-borderline relative overflow-hidden shadow-sm">
-            <div class="flex justify-between items-center mb-2">
-                <span class="text-xs font-bold text-main">${t.name}</span>
-                <span class="text-[10px] text-muted">${percent}% Done</span>
-            </div>
-            <div class="w-full bg-surface rounded-full h-1.5 mb-2">
-                <div class="bg-primary h-1.5 rounded-full" style="width: ${percent}%"></div>
-            </div>
-            <div class="flex justify-between text-[10px] items-center">
-                <span class="text-success flex items-center gap-1 font-bold"><i class="fa-solid fa-check"></i> Xong ${t.completed}</span>
-                <div class="flex gap-2">
-                    ${t.missedPen > 0 ? `<span class="text-red-400 bg-red-500/10 px-1.5 rounded flex items-center gap-1 font-bold"><i class="fa-solid fa-heart-crack"></i> Phạt ${t.missedPen}</span>` : ''}
-                    ${t.missedFree > 0 ? `<span class="text-amber-500 bg-amber-500/10 px-1.5 rounded flex items-center gap-1 font-bold"><i class="fa-solid fa-clock-rotate-left"></i> Miễn ${t.missedFree}</span>` : ''}
+    document.getElementById('stat-completed').innerText = completedTotal;
+    document.getElementById('stat-missed-pen').innerText = missedTotal;
+
+    const compContainer = document.getElementById('report-completed-container');
+    compContainer.innerHTML = '';
+    const completedArr = Object.values(completedMap).filter(x => x.times > 0).sort((a,b) => b.times - a.times);
+    if (completedArr.length === 0) {
+        compContainer.innerHTML = '<div class="text-center text-muted text-[11px] py-4 bg-input rounded-2xl border border-dashed border-borderline">Chưa có việc nào hoàn thành.</div>';
+    } else {
+        completedArr.forEach(t => {
+            compContainer.innerHTML += `
+            <div class="bg-card rounded-2xl p-3 border border-borderline flex items-center justify-between shadow-sm hover:border-success/30 transition-all mb-2">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-[14px] bg-success/10 flex items-center justify-center text-success shadow-inner text-xl"><i class="${t.icon || 'fa-solid fa-check'}"></i></div>
+                    <div><div class="font-bold text-main text-sm">${t.name}</div><div class="text-[11px] text-muted">Đã hoàn thành <span class="font-bold text-main">${t.times}</span> lần</div></div>
                 </div>
-            </div>
-        </div>`;
-    });
+                <div class="text-success font-black text-sm bg-success/10 px-2.5 py-1.5 rounded-lg border border-success/20">+${t.pts}</div>
+            </div>`;
+        });
+    }
+
+    const missContainer = document.getElementById('report-missed-container');
+    missContainer.innerHTML = '';
+    const missedArr = Object.values(missedMap).filter(x => x.times > 0).sort((a,b) => b.times - a.times);
+    if (missedArr.length === 0) {
+        missContainer.innerHTML = '<div class="text-center text-success text-[11px] py-4 bg-success/10 rounded-2xl border border-success/20 font-bold shadow-sm">Chưa có việc nào bị lỡ.</div>';
+    } else {
+        missedArr.forEach(t => {
+            missContainer.innerHTML += `
+            <div class="bg-card rounded-2xl p-3 border border-borderline flex items-center justify-between shadow-sm hover:border-red-500/30 transition-all mb-2">
+                <div class="flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-[14px] bg-red-500/10 flex items-center justify-center text-red-500 shadow-inner text-xl"><i class="${t.icon || 'fa-solid fa-xmark'}"></i></div>
+                    <div><div class="font-bold text-main text-sm">${t.name}</div><div class="text-[11px] text-muted">Bị lỡ <span class="font-bold text-red-400">${t.times}</span> lần</div></div>
+                </div>
+                <div class="text-red-500 font-black text-sm bg-red-500/10 px-2.5 py-1.5 rounded-lg border border-red-500/20">-${t.pts}</div>
+            </div>`;
+        });
+    }
 }
 
 function renderLeaderboard(data) {
