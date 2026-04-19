@@ -200,32 +200,40 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
     let hasPending = false;
     tasks.forEach(t => {
         if (t.status === 'Not Done' && t.penalty > 0) hasPending = true;
-        let statHtml = '', actHtml = '';
+        let rightColHtml = '';
         if (t.status === 'Not Done') { 
-            actHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-full mt-3 py-2.5 rounded-xl bg-surface text-main text-xs font-bold active-scale hover:bg-primary hover:text-white transition-colors">Đã làm xong</button>`; 
+            rightColHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-12 h-12 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xl active-scale hover:bg-primary hover:text-white transition-colors shadow-sm ml-2 cursor-pointer border border-primary/20"><i class="fa-solid fa-check"></i></button>`; 
         } else if (t.status === 'Pending Approval') { 
-            statHtml = `<span class="badge-pending"><i class="fa-solid fa-clock mr-1"></i>Chờ duyệt</span>`; 
-            actHtml = `<div class="mt-3 text-[11px] text-muted text-center">Xí bởi: <span class="text-main font-bold">${t.completedByName}</span></div>`; 
+            rightColHtml = `<div class="flex flex-col items-end ml-2">
+                <span class="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-2 py-1 rounded border border-amber-500/20"><i class="fa-solid fa-clock mr-1"></i>Chờ</span>
+                <span class="text-[9px] text-muted mt-1.5 bg-surface px-1.5 rounded truncate max-w-[70px]" title="${t.completedByName}">${t.completedByName}</span>
+            </div>`; 
         } else if (t.status === 'Approved') { 
-            statHtml = `<span class="badge-approved"><i class="fa-solid fa-check mr-1"></i>Hoàn thành</span>`; 
-            actHtml = `<div class="mt-3 text-[11px] text-muted text-center">Hoàn thành bởi: <span class="text-success font-bold">${t.completedByName}</span></div>`; 
+            rightColHtml = `<div class="flex flex-col items-end ml-2">
+                <span class="text-[10px] font-bold text-success bg-success/10 px-2 py-1 rounded border border-success/20"><i class="fa-solid fa-check mr-1"></i>Xong</span>
+                <span class="text-[9px] text-success mt-1.5 bg-success/5 px-1.5 rounded truncate max-w-[70px]" title="${t.completedByName}">${t.completedByName}</span>
+            </div>`; 
         }
 
         container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm relative overflow-hidden transition-all hover:border-primary/50">
+        <div class="bg-card border border-borderline rounded-2xl p-3.5 mb-3 shadow-sm relative overflow-hidden transition-all hover:border-primary/50 flex items-center justify-between">
             ${t.status === 'Approved' ? '<div class="absolute inset-0 bg-success/5 pointer-events-none"></div>' : ''}
-            <div class="flex justify-between items-start mb-3 relative z-10">
-                <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl flex items-center justify-center bg-surface text-primary shadow-inner text-base"><i class="${t.icon}"></i></div>
-                    <h3 class="font-bold text-main text-sm max-w-[150px] leading-tight">${t.name}</h3>
+            <div class="flex items-center gap-3.5 relative z-10 flex-1 min-w-0">
+                <div class="w-14 h-14 shrink-0 rounded-[16px] bg-surface flex items-center justify-center text-primary text-2xl shadow-inner border border-white/5">
+                    <i class="${t.icon}"></i>
                 </div>
-                ${statHtml}
+                <div class="flex flex-col justify-center flex-1 min-w-0">
+                    <h3 class="font-bold text-main text-sm leading-snug line-clamp-2 mb-1.5">${t.name}</h3>
+                    <div class="flex items-center gap-2">
+                        <span class="flex items-center gap-1 text-[11px] font-black text-success bg-success/10 px-1.5 py-0.5 rounded"><i class="fa-solid fa-coins text-yellow-500"></i> +${t.points}</span>
+                        ${t.penalty > 0 ? `<span class="flex items-center gap-1 text-[11px] font-black text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded"><i class="fa-solid fa-arrow-trend-down"></i> -${t.penalty}</span>` : ''}
+                    </div>
+                </div>
             </div>
-            <div class="flex items-center gap-2 text-xs text-muted relative z-10">
-                <span class="flex items-center gap-1.5 bg-input px-2.5 py-1.5 rounded-lg border border-borderline font-bold"><i class="fa-solid fa-coins text-yellow-500"></i> <span class="text-success">+${t.points}</span></span>
-                ${t.penalty > 0 ? `<span class="flex items-center gap-1.5 bg-input px-2.5 py-1.5 rounded-lg border border-borderline font-bold text-red-400"><i class="fa-solid fa-arrow-trend-down"></i> -${t.penalty}</span>` : ''}
+            
+            <div class="relative z-10 shrink-0">
+                ${rightColHtml}
             </div>
-            ${actHtml}
         </div>`;
     });
     return hasPending;
