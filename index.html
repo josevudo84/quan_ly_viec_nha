@@ -177,6 +177,9 @@
     <!-- VIEW: HISTORY -->
     <section id="view-history" class="view-section hidden">
       <h2 class="text-xl font-bold text-main mb-4">Lịch sử hoạt động</h2>
+      <div class="mb-4">
+        <select id="history-user-filter" onchange="loadHistoryData()" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none shadow-sm cursor-pointer hidden"></select>
+      </div>
       <div class="flex border-b border-borderline mb-5">
         <button id="htab-points" onclick="switchHistoryTab('points')" class="flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary">Biến động điểm</button>
         <button id="htab-rewards" onclick="switchHistoryTab('rewards')" class="flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent">Lịch sử đổi quà</button>

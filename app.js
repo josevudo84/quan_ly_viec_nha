@@ -328,11 +328,30 @@ function switchHistoryTab(tab) {
 async function loadHistoryData() {
     showLoading(true);
     
+    const filterSelect = document.getElementById('history-user-filter');
+    const existingVal = filterSelect.value;
+    filterSelect.innerHTML = '';
+    
+    let usersList = [];
+    if (currentUser.role === 'User') {
+        filterSelect.innerHTML = `<option value="${currentUser.username}">Việc của tôi (${currentUser.name})</option>`;
+        filterSelect.classList.remove('hidden');
+    } else {
+        const { data: usersData } = await supabaseClient.from('users').select('*');
+        usersList = usersData || [];
+        filterSelect.classList.remove('hidden');
+        let html = '<option value="all">Tất cả thành viên</option>';
+        usersList.forEach(u => { html += `<option value="${u.username}">${u.name}</option>`; });
+        filterSelect.innerHTML = html;
+        if (existingVal) filterSelect.value = existingVal;
+    }
+    
+    const filterUser = filterSelect.value || (currentUser.role === 'User' ? currentUser.username : 'all');
+    
     // Fetch user transactions
-    const { data: trans } = await supabaseClient.from('transactions')
-        .select('*')
-        .eq('username', currentUser.username)
-        .order('created_at', { ascending: false });
+    let transQuery = supabaseClient.from('transactions').select('*').order('created_at', { ascending: false });
+    if (filterUser !== 'all') transQuery = transQuery.eq('username', filterUser);
+    const { data: trans } = await transQuery;
 
     // Try to calculate missed tasks dynamically to mix into history
     const { data: tasks } = await supabaseClient.from('tasks').select('*');
@@ -344,10 +363,7 @@ async function loadHistoryData() {
         appStartDate.setHours(0,0,0,0);
     }
     
-    const { data: logs } = await supabaseClient.from('task_logs')
-        .select('*')
-        .eq('username', currentUser.username)
-        .eq('status', 'Approved');
+    const { data: logs } = await supabaseClient.from('task_logs').select('*').eq('status', 'Approved');
         
     const logMap = {};
     if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id] = true);
@@ -366,7 +382,7 @@ async function loadHistoryData() {
             historyItems.push({
                 date: new Date(t.created_at),
                 type: actType,
-                label: label,
+                label: (filterUser === 'all' ? `<span class="text-xs text-primary mr-1 border border-primary/20 bg-primary/10 px-1 rounded">${t.username}</span>` : '') + label,
                 amount: t.amount
             });
         });
@@ -393,14 +409,20 @@ async function loadHistoryData() {
                 
                 if (isDue && t.penalty > 0) {
                     if (!logMap[t.id + '_' + pId]) {
-                        // Avoid duplicates if admin already created a manual penalty transaction for it? 
-                        // It's hard to know exactly, so we just add the "Missed" item.
-                        historyItems.push({
-                            date: new Date(d.setHours(23,59,59)),
-                            type: 'Missed',
-                            label: 'Chưa xong: ' + t.task_name,
-                            amount: t.penalty
-                        });
+                        let shouldAdd = true;
+                        if (filterUser !== 'all' && t.calc_admin === false) {
+                            let userObj = usersList.find(u => u.username === filterUser) || currentUser;
+                            if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldAdd = false;
+                        }
+                        
+                        if (shouldAdd) {
+                            historyItems.push({
+                                date: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59),
+                                type: 'Missed',
+                                label: (filterUser === 'all' ? `<span class="text-xs text-red-500 mr-1 border border-red-500/20 bg-red-500/10 px-1 rounded">Chung</span>` : '') + 'Chưa xong: ' + t.task_name,
+                                amount: t.penalty
+                            });
+                        }
                     }
                 }
             });
@@ -432,17 +454,25 @@ async function loadHistoryData() {
                 <div class="font-black text-sm ${valClass}">${sign}${item.amount}</div>
             </div>`;
         });
-        pContainer.innerHTML += `<div class="bg-primary/10 border border-primary/20 rounded-2xl p-4 shadow-sm flex justify-between mt-2">
-            <span class="font-bold text-main text-sm">Tổng điểm hiện tại:</span>
-            <span class="font-black text-primary text-base">${currentUser.points}</span>
-        </div>`;
+        
+        if (filterUser !== 'all') {
+            let uPt = currentUser.points;
+            if (filterUser !== currentUser.username) {
+                let uObj = usersList.find(u => u.username === filterUser);
+                if (uObj) uPt = uObj.points;
+            }
+            pContainer.innerHTML += `<div class="bg-primary/10 border border-primary/20 rounded-2xl p-4 shadow-sm flex justify-between mt-2">
+                <span class="font-bold text-main text-sm">Tổng điểm của ${filterUser === currentUser.username ? 'bạn' : filterUser}:</span>
+                <span class="font-black text-primary text-base">${uPt}</span>
+            </div>`;
+        }
     }
     
     // Render Rewards History
     const rContainer = document.getElementById('history-rewards-list'); rContainer.innerHTML = '';
     const rewardItems = historyItems.filter(i => i.type === 'Spend');
     if (rewardItems.length === 0) {
-        rContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Bạn chưa đổi món quà nào.</div>';
+        rContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa đổi món quà nào.</div>';
     } else {
         rewardItems.forEach(item => {
             const dateStr = item.date.toLocaleDateString('vi-VN');
