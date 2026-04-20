@@ -610,6 +610,31 @@ async function loadHistoryData() {
     }
 }
 
+function switchReportTab(tab) {
+    currentReportTab = tab;
+    
+    const rTTasks = document.getElementById('rtab-tasks');
+    const rTLeaderboard = document.getElementById('rtab-leaderboard');
+    if (tab === 'tasks') {
+        rTTasks.className = 'flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary transition-colors';
+        rTLeaderboard.className = 'flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent transition-colors';
+    } else {
+        rTTasks.className = 'flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent transition-colors';
+        rTLeaderboard.className = 'flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary transition-colors';
+    }
+
+    const rcTasks = document.getElementById('report-content-tasks');
+    const rcLeaderboard = document.getElementById('report-content-leaderboard');
+    
+    if (tab === 'tasks') {
+        rcTasks.classList.remove('hidden');
+        rcLeaderboard.classList.add('hidden');
+    } else {
+        rcTasks.classList.add('hidden');
+        rcLeaderboard.classList.remove('hidden');
+    }
+}
+
 
 async function loadReport(timeframe) {
     if (timeframe === 'custom') return toggleCustomDate(); 
