@@ -11,6 +11,19 @@ const ICONS = ['fa-solid fa-clipboard-list', 'fa-solid fa-broom', 'fa-solid fa-t
 
 function showLoading(show) { document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none'; }
 
+function checkIfHoliday(dateObj, tasks) {
+    if (!tasks) return false;
+    const dStr = typeof dateObj === 'string' ? dateObj : `${dateObj.getFullYear()}-${String(dateObj.getMonth()+1).padStart(2,'0')}-${String(dateObj.getDate()).padStart(2,'0')}`;
+    const holidays = tasks.filter(t => t.frequency === 'Holiday');
+    for (let h of holidays) {
+        if (h.schedule) {
+            const [start, end] = h.schedule.split('_');
+            if (dStr >= start && dStr <= end) return true;
+        }
+    }
+    return false;
+}
+
 function showToast(msg, type = 'success') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
@@ -288,13 +301,41 @@ async function loadHomeData() {
     const { data: rewardsData } = await supabaseClient.from('rewards').select('*');
     showLoading(false); 
     
-    let hasPending = false;
-    hasPending = renderTaskGroup(dailyTasks, 'home-daily-container', 'Chưa có việc hàng ngày.') || hasPending;
-    hasPending = renderTaskGroup(weeklyTasks, 'home-weekly-container', 'Hôm nay không có việc định kỳ.') || hasPending;
-    renderTaskGroup(adhocTasks, 'home-adhoc-container', 'Tạm thời chưa có việc kiếm thêm.');
+    const isTodayHoliday = checkIfHoliday(today, tasksData);
     
-    if (hasPending) document.getElementById('reminder-box').classList.remove('hidden'); 
-    else document.getElementById('reminder-box').classList.add('hidden');
+    if (isTodayHoliday) {
+        document.getElementById('reminder-box').classList.add('hidden');
+        document.getElementById('home-daily-container').innerHTML = '';
+        document.getElementById('home-weekly-container').innerHTML = '';
+        document.getElementById('home-adhoc-container').innerHTML = '';
+        
+        const bannerHtml = `
+            <div class="bg-gradient-to-r from-teal-400 to-emerald-500 rounded-3xl p-6 text-white text-center shadow-xl shadow-teal-500/20 mb-6 relative overflow-hidden">
+                <i class="fa-solid fa-umbrella-beach absolute -right-6 -bottom-6 text-9xl opacity-20 rotate-[-15deg]"></i>
+                <div class="text-4xl mb-3"><i class="fa-solid fa-mug-hot animate-bounce"></i></div>
+                <h3 class="font-black text-2xl mb-1">CHẾ ĐỘ NGHỈ LỄ</h3>
+                <p class="text-sm font-medium opacity-90 relative z-10">Hôm nay không cần làm việc nhà. Tận hưởng ngày nghỉ vui vẻ nhé!</p>
+            </div>
+        `;
+        document.getElementById('home-daily-container').innerHTML = bannerHtml;
+        
+        document.getElementById('home-daily-container').parentElement.querySelector('h2').classList.add('hidden');
+        document.getElementById('home-weekly-container').parentElement.classList.add('hidden');
+        document.getElementById('home-adhoc-container').parentElement.classList.add('hidden');
+    } else {
+        document.getElementById('home-daily-container').parentElement.querySelector('h2').classList.remove('hidden');
+        document.getElementById('home-weekly-container').parentElement.classList.remove('hidden');
+        document.getElementById('home-adhoc-container').parentElement.classList.remove('hidden');
+
+        let hasPending = false;
+        hasPending = renderTaskGroup(dailyTasks, 'home-daily-container', 'Chưa có việc hàng ngày.') || hasPending;
+        hasPending = renderTaskGroup(weeklyTasks, 'home-weekly-container', 'Hôm nay không có việc định kỳ.') || hasPending;
+        renderTaskGroup(adhocTasks, 'home-adhoc-container', 'Tạm thời chưa có việc kiếm thêm.');
+        
+        if (hasPending) document.getElementById('reminder-box').classList.remove('hidden'); 
+        else document.getElementById('reminder-box').classList.add('hidden');
+    }
+
     renderRewards(rewardsData || []);
 }
 
@@ -474,6 +515,8 @@ async function loadHistoryData() {
             const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             if (dateStr >= todayStr) continue; // Only count past days
             
+            if (checkIfHoliday(d, tasks)) continue; // Skip holidays!
+            
             const dayOfWeek = d.getDay(); const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
             const weekOfMonth = Math.ceil(d.getDate() / 7);
             const weekStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-W${weekOfMonth}`;
@@ -596,13 +639,9 @@ async function loadReportData(startDate, endDate) {
     
     const { data: users } = await supabaseClient.from('users').select('*'); 
     
+    // Always fetch all data over the period to calculate the true leaderboard for everyone.
     let transQuery = supabaseClient.from('transactions').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
     let logsQuery = supabaseClient.from('task_logs').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
-    
-    if (currentUser.role === 'User') {
-        transQuery = transQuery.eq('username', currentUser.username);
-        logsQuery = logsQuery.eq('username', currentUser.username);
-    }
     
     const { data: trans } = await transQuery;
     const { data: logs } = await logsQuery;
@@ -618,7 +657,7 @@ async function loadReportData(startDate, endDate) {
         appStartDate.setHours(0,0,0,0);
     }
 
-    currentReportData = { tasks: tasks || [], logs: logs || [], startDate, endDate, users: users || [], appStartDate };
+    currentReportData = { tasks: tasks || [], logs: logs || [], startDate, endDate, users: users || [], appStartDate, trans: trans || [] };
 
     // Set up filter dropdown
     const filterSelect = document.getElementById('report-user-filter');
@@ -634,7 +673,7 @@ async function loadReportData(startDate, endDate) {
     }
     
     const reportData = {}; 
-    if(users) users.forEach(u => reportData[u.username] = { name: u.name, earned: 0, spent: 0, penalty: 0, currentPoints: u.points });
+    if(users) users.forEach(u => reportData[u.username] = { name: u.name, earned: 0, spent: 0, penalty: 0, currentPoints: u.points, role: u.role });
     
     if (trans) trans.forEach(t => { 
         if (reportData[t.username]) { 
@@ -643,7 +682,59 @@ async function loadReportData(startDate, endDate) {
             if (t.type === 'Penalty') reportData[t.username].penalty += t.amount; 
         } 
     });
-    const leaderboard = Object.keys(reportData).map(k => ({ username: k, ...reportData[k] })).sort((a, b) => b.earned - a.earned);
+
+    // Dynamic penalty calculation for Leaderboard
+    const actualEndDate = endDate > new Date() ? new Date() : endDate;
+    let effectiveStartDate = new Date(startDate);
+    if (appStartDate && effectiveStartDate < appStartDate) effectiveStartDate = new Date(appStartDate);
+    
+    const logMap = {};
+    if (logs) logs.forEach(l => { if (l.status === 'Approved') logMap[l.task_id + '_' + l.period_id] = true; });
+
+    const todayStrGlobal = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}-${String(new Date().getDate()).padStart(2,'0')}`;
+
+    for (let d = new Date(effectiveStartDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
+        const dateStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        // Skip future and today for penalty
+        if (dateStr >= todayStrGlobal) continue;
+        
+        // Also skip holidays! (Assume holidays computation applies later, let's ensure we can patch it in)
+        if (checkIfHoliday(d, tasks)) continue;
+
+        const dayOfWeek = d.getDay(); const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
+        const weekOfMonth = Math.ceil(d.getDate() / 7); 
+        const weekStr = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-W${weekOfMonth}`; 
+        
+        if (tasks) tasks.forEach(t => { 
+            let isDue = false, pId = ''; 
+            if (t.frequency === 'Daily') { isDue = true; pId = dateStr; } 
+            else if (t.frequency === 'Weekly' && t.schedule == dayOfWeekAdjusted) { isDue = true; pId = dateStr; } 
+            else if (t.frequency === 'Monthly' && t.schedule == weekOfMonth) { isDue = true; pId = weekStr; }
+            else if (t.frequency === 'Adhoc' && t.schedule === dateStr) { isDue = true; pId = dateStr; }
+            
+            if (isDue && t.penalty > 0) { 
+                if (!logMap[t.id + '_' + pId]) { 
+                    // Missed task, apply penalty to everyone legally liable
+                    Object.keys(reportData).forEach(username => {
+                        let shouldPenalize = true;
+                        if (t.calc_admin === false) {
+                            const role = reportData[username].role;
+                            if (role === 'Admin' || role === 'Moderator') shouldPenalize = false;
+                        }
+                        if (shouldPenalize) {
+                            reportData[username].penalty += t.penalty;
+                        }
+                    });
+                } 
+            } 
+        });
+    }
+
+    const leaderboard = Object.keys(reportData).map(k => ({ username: k, ...reportData[k] })).sort((a, b) => {
+        const scoreA = a.earned - a.penalty;
+        const scoreB = b.earned - b.penalty;
+        return scoreB - scoreA;
+    });
     
     renderLeaderboard(leaderboard);
     renderTaskReport();
@@ -749,23 +840,6 @@ function renderTaskReport() {
 function renderLeaderboard(data) {
     const container = document.getElementById('report-content-leaderboard'); container.innerHTML = '';
     
-    if (currentUser.role === 'User') {
-        const myData = data.find(u => u.username === currentUser.username);
-        if(!myData) return container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Chưa có dữ liệu.</div>';
-        return container.innerHTML = `
-        <div class="bg-card border border-primary rounded-2xl p-4 flex items-center gap-4 relative overflow-hidden">
-            <div class="absolute inset-0 bg-primary/5 pointer-events-none"></div>
-            <div class="flex-1 relative z-10">
-                <div class="font-bold text-main text-base">${myData.name} (Tôi)</div>
-                <div class="text-xs text-muted mt-1">Hiện có: <span class="text-primary font-bold text-base">${myData.currentPoints}</span> pts</div>
-            </div>
-            <div class="text-right space-y-1 relative z-10">
-                <div class="text-sm font-bold text-success bg-success/10 px-2 py-0.5 rounded"><i class="fa-solid fa-arrow-trend-up mr-1 text-xs"></i>+${myData.earned}</div>
-                <div class="text-xs font-bold text-red-500 bg-red-500/10 px-2 py-0.5 rounded"><i class="fa-solid fa-arrow-trend-down mr-1 text-[10px]"></i>-${myData.penalty}</div>
-            </div>
-        </div>`;
-    }
-
     if(data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Chưa có dữ liệu.</div>';
     data.forEach((user, index) => {
         let rankIcon = `<div class="w-6 h-6 rounded-full bg-surface text-muted flex items-center justify-center text-xs font-bold">${index + 1}</div>`;
@@ -774,15 +848,15 @@ function renderLeaderboard(data) {
         else if (index === 2) rankIcon = `<i class="fa-solid fa-medal text-amber-600 text-xl"></i>`;
         
         container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-4 flex items-center gap-4 shadow-sm hover:border-primary/30 transition-all">
+        <div class="bg-card border ${user.username === currentUser.username ? 'border-primary shadow-md bg-primary/5' : 'border-borderline shadow-sm'} rounded-2xl p-4 flex items-center gap-4 hover:border-primary/30 transition-all">
             <div class="w-8 flex justify-center">${rankIcon}</div>
             <div class="flex-1">
-                <div class="font-bold text-main text-sm">${user.name} ${user.username === currentUser.username ? '<span class="text-primary text-[10px] ml-1">(Tôi)</span>' : ''}</div>
+                <div class="font-bold text-main text-sm">${user.name} ${user.username === currentUser.username ? '<span class="text-primary text-[10px] ml-1 bg-primary/10 px-1 rounded font-black border border-primary/20">(Bạn)</span>' : ''}</div>
                 <div class="text-[11px] text-muted">Hiện có: <span class="text-primary font-bold">${user.currentPoints}</span> pts</div>
             </div>
             <div class="text-right space-y-1 bg-input px-3 py-1.5 rounded-lg border border-borderline">
                 <div class="text-xs text-success font-bold"><i class="fa-solid fa-arrow-trend-up mr-1 text-[10px]"></i>+${user.earned}</div>
-                <div class="text-[10px] font-bold text-red-400"><i class="fa-solid fa-arrow-trend-down mr-1 text-[10px]"></i>-${user.penalty}</div>
+                <div class="text-[10px] font-bold text-red-500"><i class="fa-solid fa-arrow-trend-down mr-1 text-[10px]"></i>-${user.penalty}</div>
             </div>
         </div>`;
     });
@@ -808,7 +882,8 @@ async function loadAdminData(type) {
             const res = await supabaseClient.from('users').select('*'); data = res.data || []; 
             if (currentUser.role === 'Moderator') data = data.filter(u => u.role === 'User'); 
         } 
-        else if (type === 'tasks') { const res = await supabaseClient.from('tasks').select('*'); data = res.data || []; } 
+        else if (type === 'tasks') { const res = await supabaseClient.from('tasks').select('*'); data = (res.data || []).filter(t => t.frequency !== 'Holiday'); } 
+        else if (type === 'holidays') { const res = await supabaseClient.from('tasks').select('*'); data = (res.data || []).filter(t => t.frequency === 'Holiday'); }
         else if (type === 'rewards') { const res = await supabaseClient.from('rewards').select('*'); data = res.data || []; }
         showLoading(false); renderAdminList(type, data);
     }
@@ -823,7 +898,7 @@ async function loadApprovals() {
     
     data.forEach(item => {
         container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-primary/50 transition-all">
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-primary/50 transition-all mb-3">
             <div class="flex justify-between items-start mb-2">
                 <div class="flex items-start gap-3">
                     <div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary shadow-inner text-base"><i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'}"></i></div>
@@ -878,6 +953,12 @@ function renderAdminList(type, data) {
             let freqBadge = item.frequency === 'Daily' ? 'Hàng ngày' : (item.frequency === 'Weekly' ? 'Hàng tuần' : (item.frequency === 'Monthly' ? 'Hàng tháng' : 'Sự vụ'));
             subtitle = `<span class="bg-surface px-1.5 rounded">${freqBadge}</span> | <span class="text-success font-bold">+${item.points}</span> / <span class="text-red-400 font-bold">-${item.penalty}</span>`; 
             prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-clipboard-list'}"></i></div>`; 
+        }
+        else if (type === 'holidays') { 
+            id = item.id; title = item.task_name || 'Nghỉ lễ'; 
+            let dateRange = item.schedule ? item.schedule.replace('_', ' đến ') : '';
+            subtitle = `<span class="bg-teal-500/10 text-teal-500 px-1.5 rounded font-bold">${dateRange}</span>`; 
+            prefixHTML = `<div class="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center text-teal-500 shadow-inner text-base"><i class="fa-solid fa-umbrella-beach"></i></div>`; 
         }
         else if (type === 'rewards') { 
             id = item.id; title = item.reward_name; 
@@ -991,6 +1072,19 @@ function openModal(type, item = null) {
             <input id="inp-rcost" type="number" placeholder="Pts" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-yellow-500" value="${item ? item.cost : ''}">
         `;
         setTimeout(() => { selectIcon(item && item.icon ? item.icon : ICONS[19]); }, 10);
+    } else if (type === 'holidays') {
+        let scheduleVal = item ? item.schedule : '';
+        let startVal = scheduleVal ? scheduleVal.split('_')[0] : '';
+        let endVal = scheduleVal ? scheduleVal.split('_')[1] : '';
+        body.innerHTML = `
+            <input id="inp-hname" type="text" placeholder="Tên kỳ nghỉ (vd: Tết Nguyên Đán)" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.task_name : ''}">
+            <div class="flex gap-3 mb-3">
+                <div class="flex-1"><label class="block text-[10px] text-muted mb-1 font-bold">TỪ NGÀY</label><input type="date" id="inp-hstart" class="w-full bg-input border border-borderline rounded-xl px-3 py-2 text-main text-xs outline-none" value="${startVal}"></div>
+                <div class="flex-1"><label class="block text-[10px] text-muted mb-1 font-bold">ĐẾN NGÀY</label><input type="date" id="inp-hend" class="w-full bg-input border border-borderline rounded-xl px-3 py-2 text-main text-xs outline-none" value="${endVal}"></div>
+            </div>
+            <input type="hidden" id="inp-icon" value="fa-solid fa-umbrella-beach">
+            <input type="hidden" id="inp-tfreq" value="Holiday">
+        `;
     }
     
     modal.classList.remove('hidden'); saveBtn.onclick = () => saveData(type, item ? (type==='users' ? item.username : item.id) : null);
@@ -1005,8 +1099,24 @@ async function saveData(type, id) {
             const data = { username: document.getElementById('inp-username').value.trim(), name: document.getElementById('inp-name').value, role: document.getElementById('inp-role').value, password: document.getElementById('inp-password').value, avatar: document.getElementById('inp-avatar').value }; 
             if (id) { const res = await supabaseClient.from('users').update(data).eq('username', id); error = res.error; } 
             else { const res = await supabaseClient.from('users').insert([data]); error = res.error; } 
-        } else if (type === 'tasks') { 
-            const data = { task_name: document.getElementById('inp-tname').value, icon: document.getElementById('inp-icon').value, frequency: document.getElementById('inp-tfreq').value, schedule: document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null, points: document.getElementById('inp-tpoints').value, penalty: (document.getElementById('inp-tpenalty').value || 0), calc_admin: document.getElementById('inp-tcalcadmin').value === 'true' }; 
+        } else if (type === 'tasks' || type === 'holidays') { 
+            const name = type === 'tasks' ? document.getElementById('inp-tname').value : document.getElementById('inp-hname').value;
+            const freq = type === 'tasks' ? document.getElementById('inp-tfreq').value : 'Holiday';
+            const icon = type === 'tasks' ? document.getElementById('inp-icon').value : 'fa-solid fa-umbrella-beach';
+            const pts = type === 'tasks' ? document.getElementById('inp-tpoints').value : 0;
+            const pen = type === 'tasks' ? (document.getElementById('inp-tpenalty').value || 0) : 0;
+            const calc_admin = type === 'tasks' ? document.getElementById('inp-tcalcadmin').value === 'true' : false;
+            let sched = null;
+            if (type === 'tasks') {
+                sched = document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null;
+            } else {
+                const sDate = document.getElementById('inp-hstart').value;
+                const eDate = document.getElementById('inp-hend').value;
+                if (!sDate || !eDate || eDate < sDate) { showLoading(false); return showToast('Vui lòng chọn ngày hợp lệ.', 'error'); }
+                sched = `${sDate}_${eDate}`;
+            }
+            
+            const data = { task_name: name, icon: icon, frequency: freq, schedule: sched, points: pts, penalty: pen, calc_admin: calc_admin }; 
             if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; } 
             else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; } 
         } else if (type === 'rewards') { 
@@ -1023,7 +1133,7 @@ async function deleteData(type, id) {
     if (!confirm('Chắc chắn xoá luôn ?')) return;
     showLoading(true); let error = null;
     if (type === 'users') { const res = await supabaseClient.from('users').delete().eq('username', id); error = res.error; }
-    else if (type === 'tasks') { const res = await supabaseClient.from('tasks').delete().eq('id', id); error = res.error; }
+    else if (type === 'tasks' || type === 'holidays') { const res = await supabaseClient.from('tasks').delete().eq('id', id); error = res.error; }
     else if (type === 'rewards') { const res = await supabaseClient.from('rewards').delete().eq('id', id); error = res.error; }
     showLoading(false); if (error) return showToast(error.message, 'error');
     showToast('Đã xoá!'); loadAdminData(type);
