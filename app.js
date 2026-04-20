@@ -722,7 +722,7 @@ async function loadReportData(startDate, endDate) {
                             if (role === 'Admin' || role === 'Moderator') shouldPenalize = false;
                         }
                         if (shouldPenalize) {
-                            reportData[username].penalty += t.penalty;
+                            reportData[username].penalty += Number(t.penalty || 0);
                         }
                     });
                 } 
