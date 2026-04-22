@@ -257,9 +257,23 @@ function switchTab(tabId) {
   if (tabId === 'admin') loadAdminData('approvals');
 }
 
+function unpackTasks(tasks) {
+  if (!tasks) return tasks;
+  return tasks.map(t => {
+    let newT = { ...t };
+    if (newT.icon && newT.icon.includes('|')) {
+      const parts = newT.icon.split('|');
+      newT.icon = parts[0];
+      newT.schedule = parts[1];
+    }
+    return newT;
+  });
+}
+
 async function loadHomeData() {
   showLoading(true); await refreshUserPoints();
-  const { data: tasksData } = await supabaseClient.from('tasks').select('*');
+  const { data: rawTasksData } = await supabaseClient.from('tasks').select('*');
+  const tasksData = unpackTasks(rawTasksData);
   const { data: logsData } = await supabaseClient.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
 
   const today = new Date();
@@ -473,7 +487,8 @@ async function loadHistoryData() {
   const { data: trans } = await transQuery;
 
   // Try to calculate missed tasks dynamically to mix into history
-  const { data: tasks } = await supabaseClient.from('tasks').select('*');
+  const { data: rawTasks } = await supabaseClient.from('tasks').select('*');
+  const tasks = unpackTasks(rawTasks);
   const { data: firstLog } = await supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
 
   let appStartDate = null;
@@ -670,7 +685,8 @@ async function loadReportData(startDate, endDate) {
 
   const { data: trans } = await transQuery;
   const { data: logs } = await logsQuery;
-  const { data: tasks } = await supabaseClient.from('tasks').select('*');
+  const { data: rawTasks } = await supabaseClient.from('tasks').select('*');
+  const tasks = unpackTasks(rawTasks);
 
   showLoading(false);
   document.getElementById('report-period').innerText = `${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`;
@@ -907,8 +923,8 @@ async function loadAdminData(type) {
       const res = await supabaseClient.from('users').select('*'); data = res.data || [];
       if (currentUser.role === 'Moderator') data = data.filter(u => u.role === 'User');
     }
-    else if (type === 'tasks') { const res = await supabaseClient.from('tasks').select('*'); data = (res.data || []).filter(t => t.frequency !== 'Holiday'); }
-    else if (type === 'holidays') { const res = await supabaseClient.from('tasks').select('*'); data = (res.data || []).filter(t => t.frequency === 'Holiday'); }
+    else if (type === 'tasks') { const res = await supabaseClient.from('tasks').select('*'); data = unpackTasks(res.data || []).filter(t => t.frequency !== 'Holiday'); }
+    else if (type === 'holidays') { const res = await supabaseClient.from('tasks').select('*'); data = unpackTasks(res.data || []).filter(t => t.frequency === 'Holiday'); }
     else if (type === 'rewards') { const res = await supabaseClient.from('rewards').select('*'); data = res.data || []; }
     showLoading(false); renderAdminList(type, data);
   }
@@ -916,6 +932,15 @@ async function loadAdminData(type) {
 
 async function loadApprovals() {
   showLoading(true); const { data, error } = await supabaseClient.from('task_logs').select('*, tasks(*), users(*)').eq('status', 'Pending Approval'); showLoading(false);
+  if (data) {
+    data.forEach(item => {
+      if (item.tasks && item.tasks.icon && item.tasks.icon.includes('|')) {
+        const parts = item.tasks.icon.split('|');
+        item.tasks.icon = parts[0];
+        item.tasks.schedule = parts[1];
+      }
+    });
+  }
   const container = document.getElementById('admin-list-container'); container.innerHTML = '';
 
   if (error) return showToast(error.message, 'error');
@@ -1141,7 +1166,13 @@ async function saveData(type, id) {
         sched = `${sDate}_${eDate}`;
       }
 
-      const data = { task_name: name, icon: icon, frequency: freq, schedule: sched, points: pts, penalty: pen, calc_admin: calc_admin };
+      let finalSched = sched;
+      let finalIcon = icon;
+      if (freq === 'Daily') { finalSched = null; }
+      else if (freq === 'Weekly' || freq === 'Monthly') { finalSched = sched ? parseInt(sched) : null; }
+      else if (freq === 'Adhoc' || freq === 'Holiday') { finalSched = null; finalIcon = `${icon}|${sched}`; }
+
+      const data = { task_name: name, icon: finalIcon, frequency: freq, schedule: finalSched, points: pts, penalty: pen, calc_admin: calc_admin };
       if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; }
       else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; }
     } else if (type === 'rewards') {
