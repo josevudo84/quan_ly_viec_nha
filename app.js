@@ -507,13 +507,36 @@ async function loadHistoryData() {
   // Prepare transaction items
   if (trans) {
     trans.forEach(t => {
-      let label = t.description;
       let actType = 'Earn';
-      if (t.type === 'Spend') { actType = 'Spend'; label = 'Đổi quà: ' + t.description.replace('Đổi quà: ', ''); }
-      else if (t.type === 'Penalty') { actType = 'Penalty'; label = 'Bị trừ điểm: ' + t.description; }
-      else { actType = 'Earn'; }
+      let actionText = 'Cộng điểm';
+      let taskName = t.description;
 
-      label = label.replace('Duyệt việc:', 'Được duyệt:');
+      if (t.type === 'Spend') { 
+          actType = 'Spend'; 
+          actionText = 'Đổi quà'; 
+          taskName = t.description.replace('Đổi quà: ', '').trim(); 
+      }
+      else if (t.type === 'Penalty') { 
+          actType = 'Penalty'; 
+          actionText = 'Bị trừ';
+          taskName = t.description;
+          if (taskName.startsWith('Chưa xong: ')) {
+              actionText = 'Chưa xong';
+              taskName = taskName.replace('Chưa xong: ', '').trim();
+          } else if (taskName.startsWith('Bị trừ điểm: ')) {
+              taskName = taskName.replace('Bị trừ điểm: ', '').trim();
+          }
+      }
+      else { 
+          actType = 'Earn'; 
+          if (taskName.startsWith('Được duyệt: ')) {
+              actionText = 'Được duyệt';
+              taskName = taskName.replace('Được duyệt: ', '').trim();
+          } else if (taskName.startsWith('Duyệt việc: ')) {
+              actionText = 'Được duyệt';
+              taskName = taskName.replace('Duyệt việc: ', '').trim();
+          }
+      }
 
       let fullName = t.username;
       if (typeof usersList !== 'undefined' && usersList) {
@@ -524,7 +547,9 @@ async function loadHistoryData() {
       historyItems.push({
         date: new Date(t.created_at),
         type: actType,
-        label: (filterUser === 'all' ? `<span class="text-[10px] font-bold text-primary mr-1.5 border border-primary/20 bg-primary/10 px-1.5 py-0.5 rounded-md whitespace-nowrap inline-block mb-1 align-middle">${fullName}</span>` : '') + `<span class="inline align-middle leading-snug">${label}</span>`,
+        actionText: actionText,
+        taskName: taskName,
+        userName: fullName,
         amount: t.amount
       });
     });
@@ -560,10 +585,22 @@ async function loadHistoryData() {
             }
 
             if (shouldAdd) {
+              let fullName = 'Toàn Đội';
+              if (filterUser !== 'all') {
+                if (typeof usersList !== 'undefined' && usersList) {
+                  const u = usersList.find(x => x.username === filterUser);
+                  if (u && u.name) fullName = u.name;
+                } else {
+                  fullName = filterUser;
+                }
+              }
+
               historyItems.push({
                 date: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59),
                 type: 'Missed',
-                label: (filterUser === 'all' ? `<span class="text-[10px] font-bold text-red-500 mr-1.5 border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 rounded-md whitespace-nowrap inline-block mb-1 align-middle">Chung</span>` : '') + `<span class="inline align-middle leading-snug">Chưa xong: ${t.task_name}</span>`,
+                actionText: 'Chưa xong',
+                taskName: t.task_name,
+                userName: fullName,
                 amount: t.penalty
               });
             }
@@ -598,14 +635,23 @@ async function loadHistoryData() {
       }
 
       pContainer.innerHTML += `
-            <div class="bg-card border border-borderline rounded-2xl p-3.5 shadow-sm flex items-center justify-between gap-3 hover:border-primary/30 transition-all hover:shadow-md group relative overflow-hidden">
+            <div class="bg-card border border-borderline rounded-2xl p-0 shadow-sm flex items-stretch justify-between gap-0 hover:border-primary/30 transition-all hover:shadow-md group relative overflow-hidden">
                 <div class="absolute inset-y-0 left-0 w-1 ${bgAcc} opacity-50"></div>
-                <div class="w-11 h-11 shrink-0 rounded-[14px] ${iconBg} flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid ${icon}"></i></div>
-                <div class="flex-1 min-w-0 ml-1">
-                    <div class="font-bold text-main text-sm mb-1 break-words whitespace-normal leading-snug">${item.label}</div>
-                    <span class="text-[11px] text-muted flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</span>
+                
+                <div class="flex flex-col items-center justify-center w-[76px] shrink-0 border-r border-borderline/50 pr-2 pl-3 py-3">
+                    <div class="w-10 h-10 rounded-2xl ${iconBg} flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform mb-1.5"><i class="fa-solid ${icon}"></i></div>
+                    <div class="text-[9px] font-black text-center leading-tight ${valClass} uppercase tracking-wider">${item.actionText}</div>
                 </div>
-                <div class="font-black text-sm px-2.5 py-1.5 rounded-xl ${pillClass} border">${sign}${item.amount}</div>
+                
+                <div class="flex-1 min-w-0 pl-3 pr-2 py-3 flex flex-col justify-center">
+                    ${filterUser === 'all' || item.userName === 'Toàn Đội' ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${item.userName}</div>` : ''}
+                    <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug">${item.taskName}</div>
+                    <div class="text-[10px] text-muted mt-1.5 flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</div>
+                </div>
+                
+                <div class="pr-3.5 py-3 flex items-center justify-end shrink-0">
+                    <div class="font-black text-sm px-2.5 py-1.5 rounded-xl ${pillClass} border">${sign}${item.amount}</div>
+                </div>
             </div>`;
     });
 
@@ -631,13 +677,14 @@ async function loadHistoryData() {
     rewardItems.forEach(item => {
       const dateStr = item.date.toLocaleDateString('vi-VN');
       rContainer.innerHTML += `
-            <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3">
-                <div class="w-10 h-10 shrink-0 rounded-xl bg-surface flex items-center justify-center text-lg text-amber-500"><i class="fa-solid fa-gift"></i></div>
-                <div class="flex-1 min-w-0">
-                    <h4 class="font-bold text-main text-sm truncate">${item.label}</h4>
-                    <span class="text-[10px] text-muted">${dateStr}</span>
+            <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3 hover:border-amber-500/30 transition-all hover:shadow-md group">
+                <div class="w-12 h-12 shrink-0 rounded-2xl bg-amber-500/10 flex items-center justify-center text-2xl text-amber-500 shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid fa-gift"></i></div>
+                <div class="flex-1 min-w-0 ml-1">
+                    ${filterUser === 'all' ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${item.userName}</div>` : ''}
+                    <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug mb-1">${item.taskName}</div>
+                    <span class="text-[10px] text-muted flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</span>
                 </div>
-                <div class="font-black text-sm text-yellow-500">-${item.amount}</div>
+                <div class="font-black text-sm text-yellow-500 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-yellow-500/20 shadow-inner">-${item.amount}</div>
             </div>`;
     });
   }
