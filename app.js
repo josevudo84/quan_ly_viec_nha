@@ -513,10 +513,18 @@ async function loadHistoryData() {
       else if (t.type === 'Penalty') { actType = 'Penalty'; label = 'Bị trừ điểm: ' + t.description; }
       else { actType = 'Earn'; }
 
+      label = label.replace('Duyệt việc:', 'Được duyệt:');
+
+      let fullName = t.username;
+      if (typeof usersList !== 'undefined' && usersList) {
+        const u = usersList.find(x => x.username === t.username);
+        if (u && u.name) fullName = u.name;
+      }
+
       historyItems.push({
         date: new Date(t.created_at),
         type: actType,
-        label: (filterUser === 'all' ? `<span class="text-xs text-primary mr-1 border border-primary/20 bg-primary/10 px-1 rounded">${t.username}</span>` : '') + label,
+        label: (filterUser === 'all' ? `<span class="text-[10px] font-bold text-primary mr-1.5 border border-primary/20 bg-primary/10 px-1.5 py-0.5 rounded-md whitespace-nowrap inline-block mb-1 align-middle">${fullName}</span>` : '') + `<span class="inline align-middle leading-snug">${label}</span>`,
         amount: t.amount
       });
     });
@@ -555,7 +563,7 @@ async function loadHistoryData() {
               historyItems.push({
                 date: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59),
                 type: 'Missed',
-                label: (filterUser === 'all' ? `<span class="text-xs text-red-500 mr-1 border border-red-500/20 bg-red-500/10 px-1 rounded">Chung</span>` : '') + 'Chưa xong: ' + t.task_name,
+                label: (filterUser === 'all' ? `<span class="text-[10px] font-bold text-red-500 mr-1.5 border border-red-500/20 bg-red-500/10 px-1.5 py-0.5 rounded-md whitespace-nowrap inline-block mb-1 align-middle">Chung</span>` : '') + `<span class="inline align-middle leading-snug">Chưa xong: ${t.task_name}</span>`,
                 amount: t.penalty
               });
             }
@@ -574,20 +582,30 @@ async function loadHistoryData() {
     pContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có lịch sử nào.</div>';
   } else {
     historyItems.forEach(item => {
-      const dateStr = item.date.toLocaleDateString('vi-VN');
-      let icon = 'fa-star text-primary', valClass = 'text-success', sign = '+';
-      if (item.type === 'Spend') { icon = 'fa-gift text-amber-500'; valClass = 'text-muted'; sign = '-'; }
-      else if (item.type === 'Missed' || item.type === 'Penalty') { icon = 'fa-triangle-exclamation text-red-400'; valClass = 'text-red-500'; sign = '-'; }
-      else { icon = 'fa-circle-check text-success'; valClass = 'text-success'; sign = '+'; }
+      const h = String(item.date.getHours()).padStart(2, '0');
+      const m = String(item.date.getMinutes()).padStart(2, '0');
+      const dateStr = item.type === 'Missed' ? item.date.toLocaleDateString('vi-VN') : `${h}:${m} ${item.date.toLocaleDateString('vi-VN')}`;
+
+      let icon = 'fa-circle-check', valClass = 'text-success', sign = '+', bgAcc = 'bg-success', iconBg = 'bg-success/10 text-success', pillClass = 'bg-success/10 text-success border-success/20';
+      
+      if (item.type === 'Spend') { 
+          icon = 'fa-gift'; valClass = 'text-yellow-500'; sign = '-'; 
+          bgAcc = 'bg-amber-500'; iconBg = 'bg-amber-500/10 text-amber-500'; pillClass = 'bg-amber-500/10 text-yellow-500 border-yellow-500/20';
+      }
+      else if (item.type === 'Missed' || item.type === 'Penalty') { 
+          icon = 'fa-triangle-exclamation'; valClass = 'text-red-500'; sign = '-'; 
+          bgAcc = 'bg-red-500'; iconBg = 'bg-red-500/10 text-red-500'; pillClass = 'bg-red-500/10 text-red-500 border-red-500/20';
+      }
 
       pContainer.innerHTML += `
-            <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3">
-                <div class="w-10 h-10 shrink-0 rounded-xl bg-surface flex items-center justify-center text-lg"><i class="fa-solid ${icon}"></i></div>
-                <div class="flex-1 min-w-0">
-                    <h4 class="font-bold text-main text-sm truncate">${item.label}</h4>
-                    <span class="text-[10px] text-muted">${dateStr}</span>
+            <div class="bg-card border border-borderline rounded-2xl p-3.5 shadow-sm flex items-center justify-between gap-3 hover:border-primary/30 transition-all hover:shadow-md group relative overflow-hidden">
+                <div class="absolute inset-y-0 left-0 w-1 ${bgAcc} opacity-50"></div>
+                <div class="w-11 h-11 shrink-0 rounded-[14px] ${iconBg} flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid ${icon}"></i></div>
+                <div class="flex-1 min-w-0 ml-1">
+                    <div class="font-bold text-main text-sm mb-1 break-words whitespace-normal leading-snug">${item.label}</div>
+                    <span class="text-[11px] text-muted flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</span>
                 </div>
-                <div class="font-black text-sm ${valClass}">${sign}${item.amount}</div>
+                <div class="font-black text-sm px-2.5 py-1.5 rounded-xl ${pillClass} border">${sign}${item.amount}</div>
             </div>`;
     });
 
@@ -979,7 +997,7 @@ async function approveTask(logId, isApproved, username, points, taskName, calcAd
       }
       if (finalPoints > 0) {
         await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username);
-        await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: `Duyệt việc: ${taskName}` }]);
+        await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: `Được duyệt: ${taskName}` }]);
       }
     }
   }
@@ -1006,7 +1024,13 @@ function renderAdminList(type, data) {
     }
     else if (type === 'holidays') {
       id = item.id; title = item.task_name || 'Nghỉ lễ';
-      let dateRange = item.schedule ? item.schedule.replace('_', ' đến ') : '';
+      let dateRange = '';
+      if (item.schedule) {
+        let parts = item.schedule.split('_');
+        let startD = parts[0] ? parts[0].split('-').reverse().join('-') : '';
+        let endD = parts[1] ? parts[1].split('-').reverse().join('-') : '';
+        dateRange = `${startD} đến ${endD}`;
+      }
       subtitle = `<span class="bg-teal-500/10 text-teal-500 px-1.5 rounded font-bold">${dateRange}</span>`;
       prefixHTML = `<div class="w-10 h-10 rounded-xl bg-teal-500/10 flex items-center justify-center text-teal-500 shadow-inner text-base"><i class="fa-solid fa-umbrella-beach"></i></div>`;
     }
