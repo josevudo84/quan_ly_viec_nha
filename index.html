@@ -1,93 +1,280 @@
 <!DOCTYPE html>
 <html lang="vi">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Quản lý Việc nhà</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  
-  <!-- Thư viện Supabase và Pháo hoa -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
-  
   <style>
-    :root { --primary: #3B82F6; --bg-dark: #0F1115; --card-bg: #1A1D24; --text-main: #F3F4F6; --text-muted: #9CA3AF; --success: #10B981; --border: #2D323E; }
-    body { background-color: var(--bg-dark); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; -webkit-tap-highlight-color: transparent; }
-    .bg-card { background-color: var(--card-bg); }
-    .text-primary { color: var(--primary); }
-    .bg-primary { background-color: var(--primary); }
-    .text-muted { color: var(--text-muted); }
-    .text-success { color: var(--success); }
-    .bg-success { background-color: var(--success); }
-    .border-borderline { border-color: var(--border); }
-    
-    .active-scale:active { transform: scale(0.96); }
-    .glass-nav { background: rgba(26, 29, 36, 0.85); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-top: 1px solid rgba(255,255,255,0.05); }
-    
-    .badge-pending { background: rgba(245, 158, 11, 0.15); color: #F59E0B; padding: 4px 10px; border-radius: 100px; font-size: 11px; font-weight: 600; }
-    .badge-approved { background: rgba(16, 185, 129, 0.15); color: #10B981; padding: 4px 10px; border-radius: 100px; font-size: 11px; font-weight: 600; }
-    
-    .loader { border: 3px solid rgba(255,255,255,0.1); border-left-color: var(--primary); border-radius: 50%; width: 32px; height: 32px; animation: spin 1s linear infinite; }
-    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-    
-    .toast { transition: transform 0.3s ease, opacity 0.3s ease; }
-    
-    ::-webkit-scrollbar { width: 0px; background: transparent; }
-  </style>
-</head>
-<body class="pb-24">
+    :root {
+      --primary: #3B82F6;
+      --bg-dark: #0F1115;
+      --card-bg: #1A1D24;
+      --input-bg: #16181D;
+      --surface-bg: #2D323E;
+      --text-main: #F3F4F6;
+      --text-muted: #9CA3AF;
+      --success: #10B981;
+      --border: #2D323E;
+      --glass-bg: rgba(26, 29, 36, 0.85);
+    }
 
-  <!-- LOADING OVERLAY -->
+    [data-theme="light"] {
+      --primary: #8B5CF6;
+      --bg-dark: #F9FAFB;
+      --card-bg: #FFFFFF;
+      --input-bg: #F3F4F6;
+      --surface-bg: #E5E7EB;
+      --text-main: #111827;
+      --text-muted: #6B7280;
+      --success: #10B981;
+      --border: #E5E7EB;
+      --glass-bg: rgba(255, 255, 255, 0.85);
+    }
+
+    [data-theme="sakura"] {
+      --primary: #F43F5E;
+      --bg-dark: #FFF1F2;
+      --card-bg: #FFE4E6;
+      --input-bg: #FECDD3;
+      --surface-bg: #FDA4AF;
+      --text-main: #881337;
+      --text-muted: #BE185D;
+      --success: #10B981;
+      --border: #FDA4AF;
+      --glass-bg: rgba(255, 228, 230, 0.85);
+    }
+
+    [data-theme="matcha"] {
+      --primary: #10B981;
+      --bg-dark: #ECFDF5;
+      --card-bg: #D1FAE5;
+      --input-bg: #A7F3D0;
+      --surface-bg: #6EE7B7;
+      --text-main: #064E3B;
+      --text-muted: #047857;
+      --success: #059669;
+      --border: #6EE7B7;
+      --glass-bg: rgba(209, 250, 229, 0.85);
+    }
+
+    [data-theme="cyberpunk"] {
+      --primary: #EAB308;
+      --bg-dark: #020617;
+      --card-bg: #1E1B4B;
+      --input-bg: #312E81;
+      --surface-bg: #3730A3;
+      --text-main: #FDE047;
+      --text-muted: #A5B4FC;
+      --success: #22C55E;
+      --border: #4F46E5;
+      --glass-bg: rgba(30, 27, 75, 0.85);
+    }
+
+    body {
+      background-color: var(--bg-dark);
+      color: var(--text-main);
+      font-family: -apple-system, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      transition: background-color 0.3s, color 0.3s;
+    }
+
+    .bg-dark-main {
+      background-color: var(--bg-dark);
+      transition: background-color 0.3s;
+    }
+
+    .bg-input {
+      background-color: var(--input-bg);
+      transition: background-color 0.3s;
+    }
+
+    .bg-surface {
+      background-color: var(--surface-bg);
+      transition: background-color 0.3s;
+    }
+
+    .bg-card {
+      background-color: var(--card-bg);
+      transition: background-color 0.3s;
+    }
+
+    .text-main {
+      color: var(--text-main);
+      transition: color 0.3s;
+    }
+
+    .text-primary {
+      color: var(--primary);
+    }
+
+    .bg-primary {
+      background-color: var(--primary);
+    }
+
+    .text-muted {
+      color: var(--text-muted);
+    }
+
+    .text-success {
+      color: var(--success);
+    }
+
+    .bg-success {
+      background-color: var(--success);
+    }
+
+    .border-borderline {
+      border-color: var(--border);
+      transition: border-color 0.3s;
+    }
+
+    .active-scale:active {
+      transform: scale(0.96);
+    }
+
+    .glass-nav {
+      background: var(--glass-bg);
+      backdrop-filter: blur(12px);
+      border-top: 1px solid var(--border);
+      transition: background-color 0.3s, border-color 0.3s;
+    }
+
+    .badge-pending {
+      background: rgba(245, 158, 11, 0.15);
+      color: #F59E0B;
+      padding: 4px 10px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .badge-approved {
+      background: rgba(16, 185, 129, 0.15);
+      color: #10B981;
+      padding: 4px 10px;
+      border-radius: 100px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .loader {
+      border: 3px solid rgba(255, 255, 255, 0.1);
+      border-left-color: var(--primary);
+      border-radius: 50%;
+      width: 32px;
+      height: 32px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    .toast {
+      transition: transform 0.3s ease, opacity 0.3s ease;
+    }
+
+    ::-webkit-scrollbar {
+      width: 0px;
+      background: transparent;
+    }
+  </style>
+  <script>
+    const savedTheme = localStorage.getItem('housework_theme') || 'dark';
+    if (savedTheme !== 'dark') document.documentElement.setAttribute('data-theme', savedTheme);
+  </script>
+</head>
+
+<body class="pb-24">
   <div id="loading-overlay" class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 hidden items-center justify-center">
     <div class="bg-card p-6 rounded-2xl flex flex-col items-center shadow-2xl border border-borderline">
       <div class="loader mb-4"></div>
-      <div class="text-white font-medium text-sm">Đang xử lý...</div>
+      <div class="text-main font-medium text-sm">Đang xử lý...</div>
     </div>
   </div>
+  <div id="toast-container"
+    class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-[90%] max-w-sm pointer-events-none"></div>
 
-  <!-- TOAST CONTAINER -->
-  <div id="toast-container" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-[90%] max-w-sm pointer-events-none"></div>
+  <!-- THEME SELECTION MODAL -->
+  <div id="theme-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col">
+      <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
+        <h3 class="font-bold text-main text-lg">Giao Diện (Themes)</h3>
+        <button onclick="closeThemeModal()"
+          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+            class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="p-5">
+        <div id="theme-options-container" class="space-y-3"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- AVATAR EDIT MODAL -->
   <div id="avatar-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
     <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col">
-      <div class="p-5 border-b border-borderline flex justify-between items-center bg-[#16181D]">
-        <h3 class="font-bold text-white text-lg">Đổi Ảnh Đại Diện</h3>
-        <button onclick="closeAvatarModal()" class="w-8 h-8 rounded-full bg-[#2D323E] text-muted flex items-center justify-center active-scale"><i class="fa-solid fa-xmark"></i></button>
+      <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
+        <h3 class="font-bold text-main text-lg">Đổi Ảnh Đại Diện</h3>
+        <button onclick="closeAvatarModal()"
+          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+            class="fa-solid fa-xmark"></i></button>
       </div>
-      <div class="p-5">
-        <label class="block text-xs font-bold text-muted mb-2 uppercase tracking-wider">Link ảnh (URL)</label>
-        <input id="inp-avatar-url" type="text" placeholder="Dán URL ảnh vào đây..." class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3 text-white text-sm outline-none">
-        <p class="text-[10px] text-muted mt-2">Gợi ý: Copy link ảnh từ Google Ảnh hoặc Facebook dán vào đây.</p>
+      <div class="p-5 flex flex-col items-center">
+        <div
+          class="relative w-24 h-24 rounded-full bg-surface border-4 border-input mb-4 overflow-hidden shadow-inner flex items-center justify-center group cursor-pointer"
+          onclick="document.getElementById('inp-avatar-upload').click()">
+          <img id="avatar-preview" src="" class="w-full h-full object-cover hidden" alt="Avatar">
+          <div id="avatar-placeholder" class="text-3xl text-muted font-black uppercase">?</div>
+          <div class="absolute inset-0 bg-black/50 hidden group-hover:flex items-center justify-center text-white"><i
+              class="fa-solid fa-camera"></i></div>
+        </div>
+        <input id="inp-avatar-upload" type="file" accept="image/*" class="hidden" onchange="previewAvatar(event)">
+        <p class="text-[10px] text-muted text-center max-w-[200px]">Nhấn vào hình để tải ảnh lên (Ảnh sẽ được tự động
+          thu nhỏ).</p>
+        <input id="hidden-avatar-base64" type="hidden">
       </div>
-      <div class="p-5 border-t border-borderline bg-[#16181D]">
-        <button onclick="saveAvatar()" class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Cập nhật ảnh</button>
-      </div>
+      <div class="p-5 border-t border-borderline bg-input"><button onclick="saveAvatarUpload()"
+          class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale">Lưu ảnh mới</button></div>
     </div>
   </div>
 
   <!-- LOGIN SCREEN -->
-  <div id="login-screen" class="fixed inset-0 bg-[#0F1115] z-50 flex items-center justify-center p-6">
+  <div id="login-screen" class="fixed inset-0 bg-dark-main z-50 flex items-center justify-center p-6">
     <div class="w-full max-w-md bg-card p-8 rounded-3xl shadow-2xl border border-borderline">
       <div class="text-center mb-8">
-        <div class="w-16 h-16 bg-primary/20 text-primary rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl"><i class="fa-solid fa-house-user"></i></div>
-        <h1 class="text-2xl font-bold text-white">Quản lý Việc nhà</h1>
+        <div
+          class="w-16 h-16 bg-primary/20 text-primary rounded-2xl flex items-center justify-center mx-auto mb-4 text-3xl">
+          <i class="fa-solid fa-house-user"></i>
+        </div>
+        <h1 class="text-2xl font-bold text-main">Quản lý Việc nhà</h1>
         <p class="text-muted text-sm mt-2">Đăng nhập để tiếp tục</p>
       </div>
       <div class="space-y-4">
-        <div>
-          <label class="block text-xs font-bold text-muted mb-2 uppercase tracking-wider">Tên đăng nhập</label>
-          <input type="text" id="login-username" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3.5 text-white text-sm outline-none focus:border-primary transition-colors" placeholder="Nhập tên đăng nhập...">
+        <div><label class="block text-xs font-bold text-muted mb-2 uppercase tracking-wider">Tên đăng nhập</label><input
+            type="text" id="login-username"
+            class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm outline-none">
         </div>
-        <div>
-          <label class="block text-xs font-bold text-muted mb-2 uppercase tracking-wider">Mật khẩu</label>
-          <input type="password" id="login-password" class="w-full bg-[#16181D] border border-borderline rounded-xl px-4 py-3.5 text-white text-sm outline-none focus:border-primary transition-colors" placeholder="Nhập mật khẩu...">
+        <div><label class="block text-xs font-bold text-muted mb-2 uppercase tracking-wider">Mật khẩu</label><input
+            type="password" id="login-password"
+            class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm outline-none">
         </div>
-        
-        <div id="login-error" class="hidden text-red-500 text-xs font-medium text-center bg-red-500/10 py-2 rounded-xl mt-2 border border-red-500/20"></div>
-
-        <button onclick="handleLogin()" class="w-full bg-primary text-white font-bold py-3.5 rounded-xl mt-4 active-scale shadow-lg shadow-primary/30 transition-transform">Đăng Nhập</button>
+        <div id="login-error"
+          class="hidden text-red-500 text-xs font-medium text-center bg-red-500/10 py-2 rounded-xl mt-2 border border-red-500/20">
+        </div>
+        <button onclick="handleLogin()"
+          class="w-full bg-primary text-white font-bold py-3.5 rounded-xl mt-4 active-scale shadow-lg shadow-primary/30">Đăng
+          Nhập</button>
       </div>
     </div>
   </div>
@@ -95,161 +282,268 @@
   <!-- HEADER -->
   <header class="bg-card border-b border-borderline sticky top-0 z-30 px-5 py-4 flex justify-between items-center">
     <div class="flex items-center gap-3">
-      <!-- Ảnh đại diện thay đổi được -->
-      <div id="user-avatar-container" onclick="openAvatarModal()" class="w-11 h-11 rounded-full bg-gradient-to-tr from-primary to-blue-400 flex items-center justify-center text-white font-bold text-lg shadow-md hover:scale-105 transition-transform cursor-pointer overflow-hidden border-2 border-transparent hover:border-primary">
-        <img id="user-avatar-img" class="w-full h-full object-cover hidden" alt="Avatar">
-        <span id="user-avatar-text">U</span>
+      <div id="user-avatar-container" onclick="openAvatarModal()"
+        class="w-11 h-11 rounded-full bg-gradient-to-tr from-primary to-blue-400 flex items-center justify-center text-white font-bold text-lg shadow-md hover:scale-105 cursor-pointer overflow-hidden border-2 border-transparent hover:border-primary">
+        <img id="user-avatar-img" class="w-full h-full object-cover hidden"><span id="user-avatar-text"
+          class="text-white">U</span>
       </div>
-      
       <div>
-        <div id="user-name" class="font-bold text-white text-sm">User Name</div>
-        <div class="text-xs text-muted flex items-center gap-1"><span id="user-role" class="bg-[#2D323E] px-2 py-0.5 rounded text-[10px] font-medium">Role</span></div>
+        <div id="user-name" class="font-bold text-main text-sm">User</div>
+        <div class="text-xs text-muted"><span id="user-role"
+            class="bg-surface px-2 py-0.5 rounded text-[10px] font-medium text-main">Role</span></div>
       </div>
     </div>
-    <div class="flex items-center gap-4">
-      <div class="text-right">
+    <div class="flex items-center gap-2">
+      <div class="text-right mr-2">
         <div class="text-[10px] text-muted uppercase font-bold tracking-wider mb-0.5">Điểm của bạn</div>
-        <div class="text-primary font-black text-lg flex items-center justify-end gap-1">
-          <i class="fa-solid fa-coins text-yellow-500 text-sm animate-pulse"></i> 
-          <span id="user-points" class="transition-all duration-300 transform inline-block">0</span>
-        </div>
+        <div class="text-primary font-black text-lg flex items-center justify-end gap-1"><i
+            class="fa-solid fa-coins text-yellow-500 text-sm animate-pulse"></i> <span id="user-points"
+            class="transition-all duration-300 transform inline-block">0</span></div>
       </div>
-      <button onclick="handleLogout()" class="w-8 h-8 rounded-full bg-[#2D323E] text-muted flex items-center justify-center active-scale"><i class="fa-solid fa-right-from-bracket text-xs"></i></button>
+      <button onclick="openThemeModal()"
+        class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"
+        title="Giao diện"><i class="fa-solid fa-palette text-xs"></i></button>
+      <button onclick="handleLogout()"
+        class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+          class="fa-solid fa-right-from-bracket text-xs"></i></button>
     </div>
   </header>
 
-  <!-- MAIN CONTENT -->
   <main class="p-5 max-w-lg mx-auto">
-    
     <!-- VIEW: HOME -->
     <section id="view-home" class="view-section">
-      <div id="reminder-box" class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 flex items-start gap-3 hidden">
+      <div id="reminder-box"
+        class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 flex items-start gap-3 hidden">
         <i class="fa-solid fa-bell text-amber-500 mt-0.5 animate-bounce"></i>
         <div>
           <h4 class="text-amber-500 font-bold text-sm">Nhắc nhở xíu!</h4>
-          <p class="text-xs text-amber-500/80 mt-1">Hôm nay có việc cần làm kìa. Tranh thủ xử lý để ẵm trọn điểm nhé!</p>
+          <p class="text-xs text-amber-500/80 mt-1">Tranh thủ xử lý việc hôm nay để ẵm điểm nhé!</p>
         </div>
       </div>
 
-      <div class="flex justify-between items-end mb-4">
-        <h2 class="text-lg font-bold text-white">Việc cần làm hôm nay</h2>
+      <div class="mb-6">
+        <h2 class="text-lg font-bold text-main mb-3 flex items-center gap-2"><i
+            class="fa-solid fa-calendar-day text-primary"></i> Việc hàng ngày phải làm</h2>
+        <div id="home-daily-container" class="space-y-3"></div>
       </div>
-      <div id="home-tasks-container" class="space-y-3 mb-8"></div>
+
+      <div class="mb-6">
+        <h2 class="text-lg font-bold text-main mb-3 flex items-center gap-2"><i
+            class="fa-solid fa-calendar-week text-primary"></i> Việc hàng tuần / tháng</h2>
+        <div id="home-weekly-container" class="space-y-3"></div>
+      </div>
+
+      <div class="mb-8">
+        <h2 class="text-lg font-bold text-main mb-3 flex items-center gap-2"><i
+            class="fa-solid fa-star text-yellow-500"></i> Việc làm thêm / Sự vụ</h2>
+        <div id="home-adhoc-container" class="space-y-3"></div>
+      </div>
 
       <div class="flex justify-between items-end mb-4">
-        <h2 class="text-lg font-bold text-white">Đổi quà</h2>
+        <h2 class="text-lg font-bold text-main">Đổi quà</h2>
       </div>
       <div id="home-rewards-container" class="grid grid-cols-2 gap-3"></div>
     </section>
 
     <!-- VIEW: REPORTS -->
     <section id="view-reports" class="view-section hidden">
-      <h2 class="text-xl font-bold text-white mb-4">Báo cáo & Thống kê</h2>
-      
-      <!-- Timeframe Filters -->
+      <h2 class="text-xl font-bold text-main mb-4">Báo cáo & Thống kê</h2>
       <div class="flex gap-2 overflow-x-auto pb-2 mb-4 hide-scrollbar">
-        <button id="filter-this_week" onclick="loadReport('this_week')" class="report-filter whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold bg-primary text-white active-scale">Tuần này</button>
-        <button id="filter-last_week" onclick="loadReport('last_week')" class="report-filter whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold bg-card text-muted border border-borderline active-scale">Tuần trước</button>
-        <button id="filter-this_month" onclick="loadReport('this_month')" class="report-filter whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold bg-card text-muted border border-borderline active-scale">Tháng này</button>
-        <button id="filter-custom" onclick="toggleCustomDate()" class="report-filter whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold bg-card text-muted border border-borderline active-scale"><i class="fa-solid fa-calendar-days mr-1"></i>Tùy chỉnh</button>
+        <button onclick="loadReport('this_week')" id="filter-this_week"
+          class="report-filter px-4 py-2 rounded-xl text-xs font-bold active-scale whitespace-nowrap bg-primary text-white">Tuần
+          này</button>
+        <button onclick="loadReport('last_week')" id="filter-last_week"
+          class="report-filter px-4 py-2 rounded-xl text-xs font-bold active-scale whitespace-nowrap bg-card text-muted border border-borderline">Tuần
+          trước</button>
+        <button onclick="loadReport('this_month')" id="filter-this_month"
+          class="report-filter px-4 py-2 rounded-xl text-xs font-bold active-scale whitespace-nowrap bg-card text-muted border border-borderline">Tháng
+          này</button>
+        <button onclick="toggleCustomDate()" id="filter-custom"
+          class="report-filter px-4 py-2 rounded-xl text-xs font-bold active-scale whitespace-nowrap bg-card text-muted border border-borderline">Tùy
+          chỉnh</button>
       </div>
-
-      <!-- Custom Date -->
       <div id="custom-date-picker" class="bg-card border border-borderline rounded-2xl p-4 mb-4 hidden">
         <div class="flex gap-3 items-end">
-          <div class="flex-1">
-            <label class="block text-[10px] text-muted mb-1 uppercase font-bold">Từ ngày</label>
-            <input type="date" id="custom-start" class="w-full bg-[#16181D] border border-borderline rounded-xl px-3 py-2 text-white text-xs outline-none">
+          <div class="flex-1"><label class="block text-[10px] text-muted mb-1">TỪ NGÀY</label><input type="date"
+              id="custom-start"
+              class="w-full bg-input border border-borderline rounded-xl px-3 py-2 text-main text-xs outline-none">
           </div>
-          <div class="flex-1">
-            <label class="block text-[10px] text-muted mb-1 uppercase font-bold">Đến ngày</label>
-            <input type="date" id="custom-end" class="w-full bg-[#16181D] border border-borderline rounded-xl px-3 py-2 text-white text-xs outline-none">
+          <div class="flex-1"><label class="block text-[10px] text-muted mb-1">ĐẾN NGÀY</label><input type="date"
+              id="custom-end"
+              class="w-full bg-input border border-borderline rounded-xl px-3 py-2 text-main text-xs outline-none">
           </div>
-          <button onclick="loadCustomReport()" class="bg-primary text-white w-10 h-[38px] rounded-xl flex items-center justify-center active-scale"><i class="fa-solid fa-magnifying-glass text-sm"></i></button>
+          <button onclick="loadCustomReport()"
+            class="bg-primary text-white w-10 h-[38px] rounded-xl flex items-center justify-center active-scale"><i
+              class="fa-solid fa-magnifying-glass text-sm"></i></button>
         </div>
       </div>
+      <div class="text-center mb-6"><span id="report-period"
+          class="bg-surface text-muted text-[11px] px-3 py-1 rounded-full font-medium shadow-inner">Đang tải...</span>
+      </div>
 
-      <div class="text-center mb-6"><span id="report-period" class="inline-block bg-[#2D323E] text-muted text-[11px] px-3 py-1 rounded-full font-medium shadow-inner">Đang tải...</span></div>
-
-      <!-- Tabs -->
       <div class="flex border-b border-borderline mb-5">
-        <button id="rtab-tasks" onclick="switchReportTab('tasks')" class="flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary">Tình hình Việc làm</button>
-        <button id="rtab-leaderboard" onclick="switchReportTab('leaderboard')" class="flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent">Bảng Xếp Hạng</button>
+        <button id="rtab-tasks" onclick="switchReportTab('tasks')"
+          class="flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary">Công việc</button>
+        <button id="rtab-leaderboard" onclick="switchReportTab('leaderboard')"
+          class="flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent">Bảng Xếp Hạng</button>
       </div>
-
-      <!-- Detail Report (3 Columns) -->
       <div id="report-content-tasks">
-        <div class="grid grid-cols-3 gap-2 mb-5">
-          <div class="bg-card border border-borderline rounded-2xl p-3 text-center shadow-sm">
-            <div class="text-success text-xl mb-1"><i class="fa-solid fa-clipboard-check"></i></div>
-            <div id="stat-completed" class="text-xl font-black text-white">0</div>
-            <div class="text-[9px] text-muted uppercase font-bold mt-1">Đã làm xong</div>
+        <div class="mb-4">
+          <select id="report-user-filter" onchange="renderTaskReport()"
+            class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none shadow-sm cursor-pointer"></select>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-6">
+          <div class="bg-card border border-borderline rounded-2xl p-4 text-center shadow-sm relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-16 h-16 bg-success/5 rounded-bl-full pointer-events-none"></div>
+            <div class="text-success text-3xl mb-1"><i class="fa-solid fa-circle-check"></i></div>
+            <div id="stat-completed" class="text-2xl font-black text-main">0</div>
+            <div class="text-[10px] text-muted uppercase font-bold mt-1">Đã hoàn thành</div>
           </div>
-          <div class="bg-card border border-borderline rounded-2xl p-3 text-center shadow-sm">
-            <div class="text-red-400 text-xl mb-1"><i class="fa-solid fa-heart-crack"></i></div>
-            <div id="stat-missed-pen" class="text-xl font-black text-white">0</div>
-            <div class="text-[9px] text-muted uppercase font-bold mt-1">Chưa làm (Có Phạt)</div>
-          </div>
-          <div class="bg-card border border-borderline rounded-2xl p-3 text-center shadow-sm">
-            <div class="text-amber-500 text-xl mb-1"><i class="fa-solid fa-clock-rotate-left"></i></div>
-            <div id="stat-missed-free" class="text-xl font-black text-white">0</div>
-            <div class="text-[9px] text-muted uppercase font-bold mt-1">Chưa làm (Thoải mái)</div>
+          <div class="bg-card border border-borderline rounded-2xl p-4 text-center shadow-sm relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-16 h-16 bg-red-500/5 rounded-bl-full pointer-events-none"></div>
+            <div class="text-red-400 text-3xl mb-1"><i class="fa-solid fa-triangle-exclamation"></i></div>
+            <div id="stat-missed-pen" class="text-2xl font-black text-main">0</div>
+            <div class="text-[10px] text-muted uppercase font-bold mt-1">Bị trừ điểm</div>
           </div>
         </div>
-        <h3 class="font-bold text-white text-sm mb-3">Chi tiết từng việc (Bao gồm chưa làm)</h3>
-        <div id="stat-breakdown" class="space-y-3"></div>
-      </div>
+        <h3 class="font-bold text-main text-sm mb-3 flex items-center gap-2"><i
+            class="fa-solid fa-award text-success"></i> Việc đã hoàn thành</h3>
+        <div id="report-completed-container" class="space-y-3 mb-6"></div>
 
-      <!-- Leaderboard -->
+        <h3 class="font-bold text-main text-sm mb-3 flex items-center gap-2"><i
+            class="fa-solid fa-heart-crack text-red-500"></i> Việc bị trừ điểm (Chưa xong)</h3>
+        <div id="report-missed-container" class="space-y-3"></div>
+      </div>
       <div id="report-content-leaderboard" class="space-y-3 hidden"></div>
+    </section>
+
+    <!-- VIEW: HISTORY -->
+    <section id="view-history" class="view-section hidden">
+      <h2 class="text-xl font-bold text-main mb-4">Lịch sử hoạt động</h2>
+      <div class="mb-4">
+        <select id="history-user-filter" onchange="loadHistoryData()"
+          class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none shadow-sm cursor-pointer hidden"></select>
+      </div>
+      <div class="flex border-b border-borderline mb-5">
+        <button id="htab-points" onclick="switchHistoryTab('points')"
+          class="flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary">Biến động điểm</button>
+        <button id="htab-rewards" onclick="switchHistoryTab('rewards')"
+          class="flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent">Lịch sử đổi quà</button>
+      </div>
+      <div id="history-content-points">
+        <div class="flex flex-col gap-3" id="history-points-list"></div>
+      </div>
+      <div id="history-content-rewards" class="hidden">
+        <div class="flex flex-col gap-3" id="history-rewards-list"></div>
+      </div>
     </section>
 
     <!-- VIEW: ADMIN -->
     <section id="view-admin" class="view-section hidden">
       <div class="flex justify-between items-center mb-4">
-        <h2 class="text-xl font-bold text-white">Quản trị</h2>
-        <button id="admin-add-btn" class="bg-primary text-white w-8 h-8 rounded-full flex items-center justify-center active-scale shadow-lg shadow-primary/30 hidden"><i class="fa-solid fa-plus"></i></button>
+        <h2 class="text-xl font-bold text-main">Quản trị</h2>
+        <div class="flex items-center gap-2">
+          <button id="admin-reset-btn" onclick="resetAllPoints()"
+            class="bg-red-500 border-red-400 text-white px-3 py-1.5 rounded-xl flex items-center justify-center text-xs font-bold active-scale shadow-lg shadow-red-500/30 hidden"><i
+              class="fa-solid fa-rotate-left mr-1.5"></i> Reset Điểm</button>
+          <button id="admin-add-btn"
+            class="bg-primary text-white w-8 h-8 rounded-full flex items-center justify-center active-scale shadow-lg shadow-primary/30 hidden"><i
+              class="fa-solid fa-plus"></i></button>
+        </div>
       </div>
-
       <div class="flex gap-2 overflow-x-auto pb-2 mb-4 hide-scrollbar">
-        <button id="admin-tab-approvals" onclick="loadAdminData('approvals')" class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold bg-[#2D323E] text-white active-scale">Duyệt việc</button>
-        <button id="admin-tab-users" onclick="loadAdminData('users')" class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Thành viên</button>
-        <button id="admin-tab-tasks" onclick="loadAdminData('tasks')" class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Công việc</button>
-        <button id="admin-tab-rewards" onclick="loadAdminData('rewards')" class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Phần thưởng</button>
+        <button id="admin-tab-approvals" onclick="loadAdminData('approvals')"
+          class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold bg-surface text-main active-scale">Duyệt
+          việc</button>
+        <button id="admin-tab-users" onclick="loadAdminData('users')"
+          class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Thành viên</button>
+        <button id="admin-tab-tasks" onclick="loadAdminData('tasks')"
+          class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Công việc</button>
+        <button id="admin-tab-holidays" onclick="loadAdminData('holidays')"
+          class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Nghỉ lễ</button>
+        <button id="admin-tab-rewards" onclick="loadAdminData('rewards')"
+          class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Phần thưởng</button>
       </div>
-
       <div id="admin-list-container" class="space-y-3"></div>
     </section>
-
   </main>
 
-  <!-- BOTTOM NAVIGATION -->
-  <nav class="glass-nav fixed bottom-0 w-full max-w-lg left-1/2 -translate-x-1/2 pb-safe pt-2 px-6 flex justify-between items-center z-30 h-16">
-    <button id="nav-home" onclick="switchTab('home')" class="nav-btn flex flex-col items-center gap-1 text-primary active-scale w-16">
-      <i class="fa-solid fa-house text-lg"></i><span class="text-[10px] font-bold">Trang chủ</span>
-    </button>
-    <button id="nav-reports" onclick="switchTab('reports')" class="nav-btn flex flex-col items-center gap-1 text-[#4B5563] active-scale w-16">
-      <i class="fa-solid fa-chart-pie text-lg"></i><span class="text-[10px] font-bold">Báo cáo</span>
-    </button>
-    <button id="nav-admin" onclick="switchTab('admin')" class="nav-btn flex flex-col items-center gap-1 text-[#4B5563] active-scale w-16 hidden">
-      <i class="fa-solid fa-shield-halved text-lg"></i><span class="text-[10px] font-bold">Quản trị</span>
-    </button>
+  <nav
+    class="glass-nav fixed bottom-0 w-full max-w-lg left-1/2 -translate-x-1/2 pb-6 pt-3 px-6 flex justify-between items-center z-30 h-20">
+    <button id="nav-home" onclick="switchTab('home')"
+      class="nav-btn flex flex-col items-center gap-1.5 text-primary active-scale w-16"><i
+        class="fa-solid fa-house text-lg"></i><span class="text-[10px] font-bold">Trang chủ</span></button>
+    <button id="nav-reports" onclick="switchTab('reports')"
+      class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16"><i
+        class="fa-solid fa-chart-pie text-lg"></i><span class="text-[10px] font-bold">Báo cáo</span></button>
+    <button id="nav-history" onclick="switchTab('history')"
+      class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16"><i
+        class="fa-solid fa-clock-rotate-left text-lg"></i><span class="text-[10px] font-bold">Lịch sử</span></button>
+    <button id="nav-admin" onclick="switchTab('admin')"
+      class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16 hidden"><i
+        class="fa-solid fa-shield-halved text-lg"></i><span class="text-[10px] font-bold">Quản trị</span></button>
   </nav>
 
   <!-- ADMIN MODAL -->
   <div id="admin-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
-    <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col max-h-[90vh]">
-      <div class="p-5 border-b border-borderline flex justify-between items-center bg-[#16181D]">
-        <h3 id="modal-title" class="font-bold text-white text-lg">Thêm/Sửa</h3>
-        <button onclick="closeModal()" class="w-8 h-8 rounded-full bg-[#2D323E] text-muted flex items-center justify-center active-scale"><i class="fa-solid fa-xmark"></i></button>
+    <div
+      class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
+        <h3 id="modal-title" class="font-bold text-main text-lg">Thêm/Sửa</h3>
+        <button onclick="closeModal()"
+          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+            class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="modal-body" class="p-5 overflow-y-auto"></div>
-      <div class="p-5 border-t border-borderline bg-[#16181D]">
-        <button id="modal-save-btn" class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Lưu thông tin</button>
+      <div class="p-5 border-t border-borderline bg-input"><button id="modal-save-btn"
+          class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Lưu
+          thông tin</button></div>
+    </div>
+  </div>
+
+  <!-- ADJUST POINTS MODAL -->
+  <div id="adjust-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div
+      class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
+        <h3 class="font-bold text-main text-lg">Cộng/Trừ Điểm</h3>
+        <button onclick="closeAdjustModal()"
+          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+            class="fa-solid fa-xmark"></i></button>
       </div>
+      <div class="p-5 overflow-y-auto">
+        <div class="text-center mb-4">
+          <div class="text-sm text-muted">Thành viên</div>
+          <div id="adj-username" class="font-bold text-main text-lg"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div>
+            <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">HÀNH ĐỘNG</label>
+            <select id="adj-type"
+              class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none">
+              <option value="add">Cộng (+) điểm</option>
+              <option value="sub">Trừ (-) điểm</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">SỐ ĐIỂM</label>
+            <input id="adj-amount" type="number" placeholder="Pts"
+              class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-black outline-none text-center">
+          </div>
+        </div>
+        <div>
+          <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">LÝ DO (BẮT BUỘC)</label>
+          <input id="adj-reason" type="text" placeholder="Nhập lý do..."
+            class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none">
+        </div>
+      </div>
+      <div class="p-5 border-t border-borderline bg-input"><button onclick="saveAdjustPoints()"
+          class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Cập
+          nhật ngay</button></div>
     </div>
   </div>
 
   <script src="app.js"></script>
 </body>
+
 </html>
