@@ -318,34 +318,32 @@ async function loadHomeData() {
   const isTodayHoliday = checkIfHoliday(today, tasksData);
 
   if (isTodayHoliday) {
-    document.getElementById('reminder-box').classList.add('hidden');
-    document.getElementById('home-daily-container').innerHTML = '';
-    document.getElementById('home-weekly-container').innerHTML = '';
-    document.getElementById('home-adhoc-container').innerHTML = '';
+    dailyTasks.forEach(t => t.penalty = 0);
+    weeklyTasks.forEach(t => t.penalty = 0);
+    adhocTasks.forEach(t => t.penalty = 0);
+  }
 
+  document.getElementById('home-daily-container').parentElement.querySelector('h2').classList.remove('hidden');
+  document.getElementById('home-weekly-container').parentElement.classList.remove('hidden');
+  document.getElementById('home-adhoc-container').parentElement.classList.remove('hidden');
+
+  let hasPending = false;
+  hasPending = renderTaskGroup(dailyTasks, 'home-daily-container', 'Chưa có việc hàng ngày.') || hasPending;
+  hasPending = renderTaskGroup(weeklyTasks, 'home-weekly-container', 'Hôm nay không có việc định kỳ.') || hasPending;
+  renderTaskGroup(adhocTasks, 'home-adhoc-container', 'Tạm thời chưa có việc kiếm thêm.');
+
+  if (isTodayHoliday) {
+    document.getElementById('reminder-box').classList.add('hidden');
     const bannerHtml = `
             <div class="bg-gradient-to-r from-teal-400 to-emerald-500 rounded-3xl p-6 text-white text-center shadow-xl shadow-teal-500/20 mb-6 relative overflow-hidden">
                 <i class="fa-solid fa-umbrella-beach absolute -right-6 -bottom-6 text-9xl opacity-20 rotate-[-15deg]"></i>
                 <div class="text-4xl mb-3"><i class="fa-solid fa-mug-hot animate-bounce"></i></div>
                 <h3 class="font-black text-2xl mb-1">CHẾ ĐỘ NGHỈ LỄ</h3>
-                <p class="text-sm font-medium opacity-90 relative z-10">Hôm nay không cần làm việc nhà. Tận hưởng ngày nghỉ vui vẻ nhé!</p>
+                <p class="text-sm font-medium opacity-90 relative z-10">Hôm nay không bắt buộc làm việc nhà, nhưng làm thì vẫn có thưởng nhé!</p>
             </div>
         `;
-    document.getElementById('home-daily-container').innerHTML = bannerHtml;
-
-    document.getElementById('home-daily-container').parentElement.querySelector('h2').classList.add('hidden');
-    document.getElementById('home-weekly-container').parentElement.classList.add('hidden');
-    document.getElementById('home-adhoc-container').parentElement.classList.add('hidden');
+    document.getElementById('home-daily-container').innerHTML = bannerHtml + document.getElementById('home-daily-container').innerHTML;
   } else {
-    document.getElementById('home-daily-container').parentElement.querySelector('h2').classList.remove('hidden');
-    document.getElementById('home-weekly-container').parentElement.classList.remove('hidden');
-    document.getElementById('home-adhoc-container').parentElement.classList.remove('hidden');
-
-    let hasPending = false;
-    hasPending = renderTaskGroup(dailyTasks, 'home-daily-container', 'Chưa có việc hàng ngày.') || hasPending;
-    hasPending = renderTaskGroup(weeklyTasks, 'home-weekly-container', 'Hôm nay không có việc định kỳ.') || hasPending;
-    renderTaskGroup(adhocTasks, 'home-adhoc-container', 'Tạm thời chưa có việc kiếm thêm.');
-
     if (hasPending) document.getElementById('reminder-box').classList.remove('hidden');
     else document.getElementById('reminder-box').classList.add('hidden');
   }
@@ -431,7 +429,7 @@ async function redeemReward(rewardId, cost, name) {
   showLoading(true); const newPts = currentUser.points - cost;
   const { error } = await supabaseClient.from('users').update({ points: newPts }).eq('username', currentUser.username);
   if (error) { showLoading(false); return showToast('Lỗi DB', 'error'); }
-  await supabaseClient.from('transactions').insert([{ username: currentUser.username, type: 'Spend', amount: cost, description: `Đổi quà: ${name}` }]);
+  await supabaseClient.from('transactions').insert([{ username: currentUser.username, type: 'Spend', amount: cost, description: `[Chờ trao] Đổi quà: ${name}` }]);
   refreshUserPoints(); showLoading(false); showToast(`Tuyệt vời! Đừng quên đòi nha!`, 'mega-success');
   if (typeof confetti === 'function') confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 });
   loadHomeData();
@@ -511,10 +509,20 @@ async function loadHistoryData() {
       let actionText = 'Cộng điểm';
       let taskName = t.description;
 
+      let rStatus = 'Đã nhận';
       if (t.type === 'Spend') { 
           actType = 'Spend'; 
           actionText = 'Đổi quà'; 
-          taskName = t.description.replace('Đổi quà: ', '').trim(); 
+          taskName = t.description;
+          if (taskName.startsWith('[Chờ trao] ')) {
+              rStatus = 'Chờ trao';
+              taskName = taskName.replace('[Chờ trao] Đổi quà: ', '').trim();
+          } else if (taskName.startsWith('[Đã trao] ')) {
+              rStatus = 'Đã trao';
+              taskName = taskName.replace('[Đã trao] Đổi quà: ', '').trim();
+          } else {
+              taskName = taskName.replace('Đổi quà: ', '').trim(); 
+          }
       }
       else if (t.type === 'Penalty') { 
           actType = 'Penalty'; 
@@ -545,12 +553,15 @@ async function loadHistoryData() {
       }
 
       historyItems.push({
+        id: t.id,
         date: new Date(t.created_at),
         type: actType,
         actionText: actionText,
         taskName: taskName,
         userName: fullName,
-        amount: t.amount
+        username_raw: t.username,
+        amount: t.amount,
+        rStatus: rStatus
       });
     });
   }
@@ -676,15 +687,34 @@ async function loadHistoryData() {
   } else {
     rewardItems.forEach(item => {
       const dateStr = item.date.toLocaleDateString('vi-VN');
+      
+      let actionHtml = '';
+      let statusBadge = '';
+      
+      if (item.rStatus === 'Chờ trao') {
+          statusBadge = `<span class="bg-amber-500/10 text-amber-500 text-[10px] px-1.5 py-0.5 rounded border border-amber-500/20 font-bold ml-2">Chờ trao</span>`;
+          if (currentUser.role === 'Admin' || currentUser.role === 'Moderator') {
+              actionHtml = `<button onclick="updateRewardStatus('${item.id}', '[Đã trao]')" class="mt-2 text-xs bg-primary text-white px-3 py-1.5 rounded-lg font-bold shadow active-scale w-full text-center">Xác nhận đã trao quà</button>`;
+          }
+      } else if (item.rStatus === 'Đã trao') {
+          statusBadge = `<span class="bg-blue-500/10 text-blue-500 text-[10px] px-1.5 py-0.5 rounded border border-blue-500/20 font-bold ml-2">Đang giao</span>`;
+          if (currentUser.username === item.username_raw || currentUser.role === 'Admin' || currentUser.role === 'Moderator') {
+              actionHtml = `<button onclick="updateRewardStatus('${item.id}', 'Đã nhận')" class="mt-2 text-xs bg-success text-white px-3 py-1.5 rounded-lg font-bold shadow active-scale w-full text-center">Xác nhận đã nhận quà</button>`;
+          }
+      } else {
+          statusBadge = `<span class="bg-success/10 text-success text-[10px] px-1.5 py-0.5 rounded border border-success/20 font-bold ml-2">Hoàn tất</span>`;
+      }
+
       rContainer.innerHTML += `
-            <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3 hover:border-amber-500/30 transition-all hover:shadow-md group">
+            <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-start justify-between gap-3 hover:border-amber-500/30 transition-all hover:shadow-md group">
                 <div class="w-12 h-12 shrink-0 rounded-2xl bg-amber-500/10 flex items-center justify-center text-2xl text-amber-500 shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid fa-gift"></i></div>
                 <div class="flex-1 min-w-0 ml-1">
                     ${filterUser === 'all' ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${item.userName}</div>` : ''}
-                    <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug mb-1">${item.taskName}</div>
+                    <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug mb-1">${item.taskName}${statusBadge}</div>
                     <span class="text-[10px] text-muted flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</span>
+                    ${actionHtml}
                 </div>
-                <div class="font-black text-sm text-yellow-500 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-yellow-500/20 shadow-inner">-${item.amount}</div>
+                <div class="font-black text-sm text-yellow-500 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-yellow-500/20 shadow-inner mt-1 self-start">-${item.amount}</div>
             </div>`;
     });
   }
@@ -870,10 +900,16 @@ function renderTaskReport() {
     effectiveStartDate = new Date(currentReportData.appStartDate);
   }
 
+  const todayStrReport = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
+
   for (let d = new Date(effectiveStartDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+    // Bug fix #1: Skip holidays when counting missed tasks (was missing before)
+    if (checkIfHoliday(d, tasks)) continue;
+
     const dayOfWeek = d.getDay(); const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
     const weekOfMonth = Math.ceil(d.getDate() / 7);
-    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const weekStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-W${weekOfMonth}`;
 
     tasks.forEach(t => {
@@ -892,11 +928,19 @@ function renderTaskReport() {
             completedMap[t.id].pts += t.points;
           }
         } else {
-          const todayStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
-          if (t.penalty > 0 && filterUser === 'all' && dateStr < todayStr) {
-            missedTotal++;
-            missedMap[t.id].times++;
-            missedMap[t.id].pts += t.penalty;
+          // Bug fix #2: Count missed tasks for individual users too (not just 'all')
+          if (t.penalty > 0 && dateStr < todayStrReport) {
+            let shouldCount = true;
+            // When viewing a specific user, check calc_admin rules
+            if (filterUser !== 'all' && t.calc_admin === false) {
+              const userObj = (currentReportData.users || []).find(u => u.username === filterUser) || currentUser;
+              if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldCount = false;
+            }
+            if (shouldCount) {
+              missedTotal++;
+              missedMap[t.id].times++;
+              missedMap[t.id].pts += t.penalty;
+            }
           }
         }
       }
@@ -978,6 +1022,8 @@ async function loadAdminData(type) {
 
   if (type === 'approvals') {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; loadApprovals();
+  } else if (type === 'reward_approvals') {
+    addBtn.style.display = 'none'; resetBtn.style.display = 'none'; loadRewardApprovals();
   } else {
     addBtn.style.display = 'flex';
     resetBtn.style.display = (type === 'users' && currentUser.role === 'Admin') ? 'flex' : 'none';
@@ -992,6 +1038,69 @@ async function loadAdminData(type) {
     else if (type === 'holidays') { const res = await supabaseClient.from('tasks').select('*'); data = unpackTasks(res.data || []).filter(t => t.frequency === 'Holiday'); }
     else if (type === 'rewards') { const res = await supabaseClient.from('rewards').select('*'); data = res.data || []; }
     showLoading(false); renderAdminList(type, data);
+  }
+}
+
+async function loadRewardApprovals() {
+  showLoading(true);
+  const { data: transAll, error } = await supabaseClient.from('transactions').select('*').eq('type', 'Spend').order('created_at', { ascending: false });
+  const { data: usersData } = await supabaseClient.from('users').select('*');
+  showLoading(false);
+  
+  const container = document.getElementById('admin-list-container'); container.innerHTML = '';
+
+  if (error) return showToast(error.message, 'error');
+  
+  const trans = (transAll || []).filter(t => t.description && t.description.startsWith('[Chờ trao]'));
+  if (trans.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Tuyệt vời! Không có quà nào chờ trao.</div>';
+
+  trans.forEach(item => {
+    let taskName = item.description.replace('[Chờ trao] Đổi quà: ', '').trim();
+    let uName = item.username;
+    if (usersData) {
+        let uObj = usersData.find(u => u.username === item.username);
+        if (uObj && uObj.name) uName = uObj.name;
+    }
+
+    container.innerHTML += `
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-amber-500/50 transition-all mb-3">
+            <div class="flex justify-between items-start mb-2">
+                <div class="flex items-start gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="fa-solid fa-gift"></i></div>
+                    <div>
+                        <h4 class="font-bold text-main text-sm max-w-[150px] leading-tight mb-1">${taskName}</h4>
+                        <div class="text-xs text-muted">Người nhận: <span class="text-main font-bold">${uName}</span></div>
+                        <div class="text-[10px] text-muted mt-1"><i class="fa-regular fa-clock"></i> ${new Date(item.created_at).toLocaleDateString('vi-VN')}</div>
+                    </div>
+                </div>
+                <div class="text-yellow-500 font-black text-sm bg-amber-500/10 px-2 py-1 rounded border border-yellow-500/20">-${item.amount}</div>
+            </div>
+            <div class="mt-4">
+                <button onclick="updateRewardStatus('${item.id}', '[Đã trao]')" class="w-full py-2.5 rounded-xl bg-primary text-white text-xs font-bold active-scale shadow-lg shadow-primary/30"><i class="fa-solid fa-hand-holding-heart mr-1.5"></i> Xác nhận đã trao quà</button>
+            </div>
+        </div>`;
+  });
+}
+
+async function updateRewardStatus(transactionId, newStatus) {
+  showLoading(true);
+  const { data: tData } = await supabaseClient.from('transactions').select('description').eq('id', transactionId).single();
+  if (!tData) {
+      showLoading(false);
+      return showToast('Không tìm thấy giao dịch!', 'error');
+  }
+  let baseName = tData.description.replace('[Chờ trao] Đổi quà: ', '').replace('[Đã trao] Đổi quà: ', '').replace('Đổi quà: ', '').trim();
+  let newDesc = newStatus === 'Đã nhận' ? `Đổi quà: ${baseName}` : `${newStatus} Đổi quà: ${baseName}`;
+  const { error } = await supabaseClient.from('transactions').update({ description: newDesc }).eq('id', transactionId);
+  showLoading(false);
+  if (error) {
+      return showToast('Lỗi khi cập nhật!', 'error');
+  }
+  showToast('Cập nhật trạng thái thành công!', 'success');
+  if (document.getElementById('view-admin').classList.contains('hidden') === false && currentAdminType === 'reward_approvals') {
+      loadAdminData('reward_approvals');
+  } else {
+      loadHistoryData();
   }
 }
 
