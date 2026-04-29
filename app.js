@@ -9,6 +9,12 @@ let currentReportTab = 'tasks';
 
 const ICONS = ['fa-solid fa-clipboard-list', 'fa-solid fa-broom', 'fa-solid fa-trash', 'fa-solid fa-shirt', 'fa-solid fa-utensils', 'fa-solid fa-droplet', 'fa-solid fa-leaf', 'fa-solid fa-cart-shopping', 'fa-solid fa-book', 'fa-solid fa-sink', 'fa-solid fa-bath', 'fa-solid fa-dog', 'fa-solid fa-cat', 'fa-solid fa-box', 'fa-solid fa-gamepad', 'fa-solid fa-ticket', 'fa-solid fa-tv', 'fa-solid fa-mug-hot', 'fa-solid fa-star', 'fa-solid fa-gift', 'fa-solid fa-medal', 'fa-solid fa-motorcycle', 'fa-solid fa-car', 'fa-solid fa-money-bill', 'fa-solid fa-fire', 'fa-solid fa-rocket', 'fa-solid fa-bolt'];
 
+// === ROLE HELPERS ===
+function isSuperAdmin() { return currentUser && currentUser.role === 'Super Admin'; }
+function isAdmin() { return currentUser && (currentUser.role === 'Admin' || currentUser.role === 'Super Admin'); }
+function isAdminOrMod() { return currentUser && (currentUser.role === 'Admin' || currentUser.role === 'Super Admin' || currentUser.role === 'Moderator'); }
+function getFamilyId() { return currentUser ? currentUser.family_id : null; }
+
 function showLoading(show) { document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none'; }
 
 function checkIfHoliday(dateObj, tasks) {
@@ -238,10 +244,15 @@ function initApp() {
   document.getElementById('user-points').innerText = currentUser.points;
 
   updateAvatarHeader(); setupRealtimeListener();
-  if (currentUser.role === 'Admin' || currentUser.role === 'Moderator') {
+  if (isAdminOrMod()) {
     document.getElementById('nav-admin').classList.remove('hidden'); document.getElementById('nav-admin').classList.add('flex');
   } else {
     document.getElementById('nav-admin').classList.add('hidden'); document.getElementById('nav-admin').classList.remove('flex');
+  }
+  // Show/hide families tab for Super Admin
+  const famTab = document.getElementById('admin-tab-families');
+  if (famTab) {
+    if (isSuperAdmin()) { famTab.classList.remove('hidden'); } else { famTab.classList.add('hidden'); }
   }
   switchTab('home');
 }
@@ -272,7 +283,9 @@ function unpackTasks(tasks) {
 
 async function loadHomeData() {
   showLoading(true); await refreshUserPoints();
-  const { data: rawTasksData } = await supabaseClient.from('tasks').select('*');
+  let tasksQuery = supabaseClient.from('tasks').select('*');
+  if (getFamilyId()) tasksQuery = tasksQuery.eq('family_id', getFamilyId());
+  const { data: rawTasksData } = await tasksQuery;
   const tasksData = unpackTasks(rawTasksData);
   const { data: logsData } = await supabaseClient.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
 
@@ -312,7 +325,9 @@ async function loadHomeData() {
     });
   }
 
-  const { data: rewardsData } = await supabaseClient.from('rewards').select('*');
+  let rewardsQuery = supabaseClient.from('rewards').select('*');
+  if (getFamilyId()) rewardsQuery = rewardsQuery.eq('family_id', getFamilyId());
+  const { data: rewardsData } = await rewardsQuery;
   showLoading(false);
 
   const isTodayHoliday = checkIfHoliday(today, tasksData);
@@ -468,7 +483,9 @@ async function loadHistoryData() {
     filterSelect.innerHTML = `<option value="${currentUser.username}">Việc của tôi (${currentUser.name})</option>`;
     filterSelect.classList.remove('hidden');
   } else {
-    const { data: usersData } = await supabaseClient.from('users').select('*');
+    let usersQuery = supabaseClient.from('users').select('*');
+    if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
+    const { data: usersData } = await usersQuery;
     usersList = usersData || [];
     filterSelect.classList.remove('hidden');
     let html = '<option value="all">Tất cả thành viên</option>';
@@ -480,12 +497,16 @@ async function loadHistoryData() {
   const filterUser = filterSelect.value || (currentUser.role === 'User' ? currentUser.username : 'all');
 
   // Fetch user transactions
+  const familyUsernames = usersList.length > 0 ? usersList.map(u => u.username) : [currentUser.username];
   let transQuery = supabaseClient.from('transactions').select('*').order('created_at', { ascending: false });
   if (filterUser !== 'all') transQuery = transQuery.eq('username', filterUser);
+  else transQuery = transQuery.in('username', familyUsernames);
   const { data: trans } = await transQuery;
 
   // Try to calculate missed tasks dynamically to mix into history
-  const { data: rawTasks } = await supabaseClient.from('tasks').select('*');
+  let rawTasksQuery = supabaseClient.from('tasks').select('*');
+  if (getFamilyId()) rawTasksQuery = rawTasksQuery.eq('family_id', getFamilyId());
+  const { data: rawTasks } = await rawTasksQuery;
   const tasks = unpackTasks(rawTasks);
   const { data: firstLog } = await supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
 
@@ -693,12 +714,12 @@ async function loadHistoryData() {
       
       if (item.rStatus === 'Chờ trao') {
           statusBadge = `<span class="bg-amber-500/10 text-amber-500 text-[10px] px-1.5 py-0.5 rounded border border-amber-500/20 font-bold ml-2">Chờ trao</span>`;
-          if (currentUser.role === 'Admin' || currentUser.role === 'Moderator') {
+          if (isAdminOrMod()) {
               actionHtml = `<button onclick="updateRewardStatus('${item.id}', '[Đã trao]')" class="mt-2 text-xs bg-primary text-white px-3 py-1.5 rounded-lg font-bold shadow active-scale w-full text-center">Xác nhận đã trao quà</button>`;
           }
       } else if (item.rStatus === 'Đã trao') {
           statusBadge = `<span class="bg-blue-500/10 text-blue-500 text-[10px] px-1.5 py-0.5 rounded border border-blue-500/20 font-bold ml-2">Đang giao</span>`;
-          if (currentUser.username === item.username_raw || currentUser.role === 'Admin' || currentUser.role === 'Moderator') {
+          if (currentUser.username === item.username_raw || isAdminOrMod()) {
               actionHtml = `<button onclick="updateRewardStatus('${item.id}', 'Đã nhận')" class="mt-2 text-xs bg-success text-white px-3 py-1.5 rounded-lg font-bold shadow active-scale w-full text-center">Xác nhận đã nhận quà</button>`;
           }
       } else {
@@ -772,15 +793,23 @@ async function loadReport(timeframe) {
 async function loadReportData(startDate, endDate) {
   document.getElementById('report-period').innerText = 'Đang tải...'; showLoading(true);
 
-  const { data: users } = await supabaseClient.from('users').select('*');
+  let usersQuery = supabaseClient.from('users').select('*');
+  if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
+  const { data: users } = await usersQuery;
+
+  const familyUsernames = (users || []).map(u => u.username);
 
   // Always fetch all data over the period to calculate the true leaderboard for everyone.
   let transQuery = supabaseClient.from('transactions').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
+  if (familyUsernames.length > 0) transQuery = transQuery.in('username', familyUsernames);
   let logsQuery = supabaseClient.from('task_logs').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
+  if (familyUsernames.length > 0) logsQuery = logsQuery.in('username', familyUsernames);
 
   const { data: trans } = await transQuery;
   const { data: logs } = await logsQuery;
-  const { data: rawTasks } = await supabaseClient.from('tasks').select('*');
+  let rawTasksQuery = supabaseClient.from('tasks').select('*');
+  if (getFamilyId()) rawTasksQuery = rawTasksQuery.eq('family_id', getFamilyId());
+  const { data: rawTasks } = await rawTasksQuery;
   const tasks = unpackTasks(rawTasks);
 
   showLoading(false);
@@ -1024,27 +1053,50 @@ async function loadAdminData(type) {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; loadApprovals();
   } else if (type === 'reward_approvals') {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; loadRewardApprovals();
+  } else if (type === 'families') {
+    addBtn.style.display = 'flex'; resetBtn.style.display = 'none';
+    addBtn.onclick = () => openFamilyModal();
+    loadFamiliesData();
   } else {
     addBtn.style.display = 'flex';
-    resetBtn.style.display = (type === 'users' && currentUser.role === 'Admin') ? 'flex' : 'none';
+    resetBtn.style.display = (type === 'users' && isAdmin()) ? 'flex' : 'none';
 
     addBtn.onclick = () => openModal(type);
     showLoading(true); let data = [];
     if (type === 'users') {
-      const res = await supabaseClient.from('users').select('*'); data = res.data || [];
+      let usersQuery = supabaseClient.from('users').select('*');
+      if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
+      const res = await usersQuery; data = res.data || [];
       if (currentUser.role === 'Moderator') data = data.filter(u => u.role === 'User');
     }
-    else if (type === 'tasks') { const res = await supabaseClient.from('tasks').select('*'); data = unpackTasks(res.data || []).filter(t => t.frequency !== 'Holiday'); }
-    else if (type === 'holidays') { const res = await supabaseClient.from('tasks').select('*'); data = unpackTasks(res.data || []).filter(t => t.frequency === 'Holiday'); }
-    else if (type === 'rewards') { const res = await supabaseClient.from('rewards').select('*'); data = res.data || []; }
+    else if (type === 'tasks') {
+      let tasksQuery = supabaseClient.from('tasks').select('*');
+      if (getFamilyId()) tasksQuery = tasksQuery.eq('family_id', getFamilyId());
+      const res = await tasksQuery; data = unpackTasks(res.data || []).filter(t => t.frequency !== 'Holiday');
+    }
+    else if (type === 'holidays') {
+      let tasksQuery = supabaseClient.from('tasks').select('*');
+      if (getFamilyId()) tasksQuery = tasksQuery.eq('family_id', getFamilyId());
+      const res = await tasksQuery; data = unpackTasks(res.data || []).filter(t => t.frequency === 'Holiday');
+    }
+    else if (type === 'rewards') {
+      let rewardsQuery = supabaseClient.from('rewards').select('*');
+      if (getFamilyId()) rewardsQuery = rewardsQuery.eq('family_id', getFamilyId());
+      const res = await rewardsQuery; data = res.data || [];
+    }
     showLoading(false); renderAdminList(type, data);
   }
 }
 
 async function loadRewardApprovals() {
   showLoading(true);
-  const { data: transAll, error } = await supabaseClient.from('transactions').select('*').eq('type', 'Spend').order('created_at', { ascending: false });
-  const { data: usersData } = await supabaseClient.from('users').select('*');
+  let usersQuery = supabaseClient.from('users').select('*');
+  if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
+  const { data: usersData } = await usersQuery;
+  const familyUsernames = (usersData || []).map(u => u.username);
+  let transAllQuery = supabaseClient.from('transactions').select('*').eq('type', 'Spend').order('created_at', { ascending: false });
+  if (familyUsernames.length > 0) transAllQuery = transAllQuery.in('username', familyUsernames);
+  const { data: transAll, error } = await transAllQuery;
   showLoading(false);
   
   const container = document.getElementById('admin-list-container'); container.innerHTML = '';
@@ -1105,7 +1157,11 @@ async function updateRewardStatus(transactionId, newStatus) {
 }
 
 async function loadApprovals() {
-  showLoading(true); const { data, error } = await supabaseClient.from('task_logs').select('*, tasks(*), users(*)').eq('status', 'Pending Approval'); showLoading(false);
+  showLoading(true);
+  let approvalQuery = supabaseClient.from('task_logs').select('*, tasks!inner(*), users(*)').eq('status', 'Pending Approval');
+  if (getFamilyId()) approvalQuery = approvalQuery.eq('tasks.family_id', getFamilyId());
+  const { data, error } = await approvalQuery;
+  showLoading(false);
   if (data) {
     data.forEach(item => {
       if (item.tasks && item.tasks.icon && item.tasks.icon.includes('|')) {
@@ -1258,10 +1314,10 @@ function openModal(type, item = null) {
   }
 
   if (type === 'users') {
-    let roleOpts = currentUser.role === 'Admin' ?
+    let roleOpts = isAdmin() ?
       `<option value="User" ${item && item.role === 'User' ? 'selected' : ''}>User</option>
              <option value="Moderator" ${item && item.role === 'Moderator' ? 'selected' : ''}>Moderator</option>
-             <option value="Admin" ${item && item.role === 'Admin' ? 'selected' : ''}>Admin</option>` : `<option value="User" selected>User</option>`;
+             <option value="Admin" ${item && item.role === 'Admin' ? 'selected' : ''}>Admin</option>${isSuperAdmin() ? `<option value="Super Admin" ${item && item.role === 'Super Admin' ? 'selected' : ''}>Super Admin</option>` : ''}` : `<option value="User" selected>User</option>`;
 
     body.innerHTML = `
             <input id="inp-username" type="text" placeholder="Tên user" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.username : ''}" ${item ? 'disabled' : ''}>
@@ -1326,7 +1382,7 @@ async function saveData(type, id) {
   showLoading(true); let error = null;
   try {
     if (type === 'users') {
-      const data = { username: document.getElementById('inp-username').value.trim(), name: document.getElementById('inp-name').value, role: document.getElementById('inp-role').value, password: document.getElementById('inp-password').value, avatar: document.getElementById('inp-avatar').value };
+      const data = { username: document.getElementById('inp-username').value.trim(), name: document.getElementById('inp-name').value, role: document.getElementById('inp-role').value, password: document.getElementById('inp-password').value, avatar: document.getElementById('inp-avatar').value, family_id: getFamilyId() };
       if (id) { const res = await supabaseClient.from('users').update(data).eq('username', id); error = res.error; }
       else { const res = await supabaseClient.from('users').insert([data]); error = res.error; }
     } else if (type === 'tasks' || type === 'holidays') {
@@ -1352,11 +1408,11 @@ async function saveData(type, id) {
       else if (freq === 'Weekly' || freq === 'Monthly') { finalSched = sched ? parseInt(sched) : null; }
       else if (freq === 'Adhoc' || freq === 'Holiday') { finalSched = null; finalIcon = `${icon}|${sched}`; }
 
-      const data = { task_name: name, icon: finalIcon, frequency: freq, schedule: finalSched, points: pts, penalty: pen, calc_admin: calc_admin };
+      const data = { task_name: name, icon: finalIcon, frequency: freq, schedule: finalSched, points: pts, penalty: pen, calc_admin: calc_admin, family_id: getFamilyId() };
       if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; }
       else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; }
     } else if (type === 'rewards') {
-      const data = { reward_name: document.getElementById('inp-rname').value, icon: document.getElementById('inp-icon').value, cost: document.getElementById('inp-rcost').value };
+      const data = { reward_name: document.getElementById('inp-rname').value, icon: document.getElementById('inp-icon').value, cost: document.getElementById('inp-rcost').value, family_id: getFamilyId() };
       if (id) { const res = await supabaseClient.from('rewards').update(data).eq('id', id); error = res.error; }
       else { const res = await supabaseClient.from('rewards').insert([data]); error = res.error; }
     }
@@ -1413,7 +1469,9 @@ async function saveAdjustPoints() {
 async function resetAllPoints() {
   if (!confirm('CẢNH BÁO: Hành động này sẽ đưa ĐIỂM CỦA TẤT CẢ USER VỀ 0. Dữ liệu giao dịch cũ vẫn được giữ nhưng điểm hiện tại sẽ mất. Bạn chắc chắn chứ?')) return;
   showLoading(true);
-  const { data: users } = await supabaseClient.from('users').select('username');
+  let resetQuery = supabaseClient.from('users').select('username');
+  if (getFamilyId()) resetQuery = resetQuery.eq('family_id', getFamilyId());
+  const { data: users } = await resetQuery;
   if (users) {
     for (let u of users) {
       await supabaseClient.from('users').update({ points: 0 }).eq('username', u.username);
@@ -1423,6 +1481,244 @@ async function resetAllPoints() {
   showLoading(false);
   showToast('Boom! Đã reset điểm toàn hệ thống về 0.', 'mega-success');
   loadAdminData('users');
+}
+
+// ====== SUPER ADMIN: FAMILY MANAGEMENT ======
+
+async function loadFamiliesData() {
+  showLoading(true);
+  const { data: families } = await supabaseClient.from('families').select('*').order('created_at', { ascending: true });
+  const { data: allUsers } = await supabaseClient.from('users').select('username, name, role, family_id, points');
+  showLoading(false);
+
+  const container = document.getElementById('admin-list-container');
+  container.innerHTML = '';
+
+  if (!families || families.length === 0) {
+    container.innerHTML = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Chưa có gia đình nào.</div>';
+    return;
+  }
+
+  families.forEach(f => {
+    const members = (allUsers || []).filter(u => u.family_id === f.id);
+    const totalMembers = members.length;
+    const admins = members.filter(u => u.role === 'Admin' || u.role === 'Super Admin').length;
+    const mods = members.filter(u => u.role === 'Moderator').length;
+    const users = members.filter(u => u.role === 'User').length;
+    const isMyFamily = f.id === getFamilyId();
+
+    window[`familyData_${f.id}`] = f;
+
+    container.innerHTML += `
+      <div class="bg-card border ${isMyFamily ? 'border-primary shadow-md' : 'border-borderline'} rounded-2xl p-5 shadow-sm transition-all hover:border-primary/50 mb-3">
+        <div class="flex justify-between items-start mb-4">
+          <div class="flex items-center gap-3">
+            <div class="w-12 h-12 rounded-2xl ${isMyFamily ? 'bg-primary/20 text-primary' : 'bg-surface text-muted'} flex items-center justify-center text-xl shadow-inner">
+              <i class="fa-solid fa-house-chimney"></i>
+            </div>
+            <div>
+              <h4 class="font-bold text-main text-base leading-tight">${f.family_name}${isMyFamily ? ' <span class="text-primary text-[10px] ml-1 bg-primary/10 px-1.5 rounded font-black border border-primary/20">Của tôi</span>' : ''}</h4>
+              <div class="text-[11px] text-muted mt-1"><i class="fa-solid fa-user-group mr-1"></i>${totalMembers} thành viên</div>
+            </div>
+          </div>
+          <div class="flex gap-1.5">
+            <button onclick="openFamilyModal(window['familyData_${f.id}'])" class="w-8 h-8 rounded-lg bg-surface text-main flex items-center justify-center active-scale" title="Sửa"><i class="fa-solid fa-pen text-xs"></i></button>
+            ${!isMyFamily ? `<button onclick="deleteFamilyData('${f.id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center active-scale" title="Xoá"><i class="fa-solid fa-trash text-xs"></i></button>` : ''}
+          </div>
+        </div>
+        <div class="grid grid-cols-3 gap-2 mb-3">
+          <div class="bg-input rounded-xl p-2.5 text-center border border-borderline">
+            <div class="text-primary font-black text-lg">${admins}</div>
+            <div class="text-[9px] text-muted font-bold uppercase">Admin</div>
+          </div>
+          <div class="bg-input rounded-xl p-2.5 text-center border border-borderline">
+            <div class="text-amber-500 font-black text-lg">${mods}</div>
+            <div class="text-[9px] text-muted font-bold uppercase">Mod</div>
+          </div>
+          <div class="bg-input rounded-xl p-2.5 text-center border border-borderline">
+            <div class="text-success font-black text-lg">${users}</div>
+            <div class="text-[9px] text-muted font-bold uppercase">User</div>
+          </div>
+        </div>
+        ${!isMyFamily ? `<button onclick="copyTemplateTasks('${f.id}', '${f.family_name}')" class="w-full py-2 rounded-xl bg-surface text-muted text-[11px] font-bold active-scale hover:bg-primary/10 hover:text-primary transition-all border border-borderline"><i class="fa-solid fa-copy mr-1.5"></i>Copy công việc mẫu từ gia đình tôi</button>` : ''}
+      </div>`;
+  });
+}
+
+function openFamilyModal(family = null) {
+  const modal = document.getElementById('family-modal');
+  const title = document.getElementById('family-modal-title');
+  const body = document.getElementById('family-modal-body');
+  const saveBtn = document.getElementById('family-modal-save-btn');
+
+  title.innerText = family ? 'Sửa Gia Đình' : 'Tạo Gia Đình Mới';
+  saveBtn.innerText = family ? 'Cập nhật' : 'Tạo gia đình';
+
+  if (family) {
+    body.innerHTML = `
+      <input id="inp-fname" type="text" placeholder="Tên gia đình" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${family.family_name}">
+    `;
+    saveBtn.onclick = () => saveFamilyData(family.id);
+  } else {
+    body.innerHTML = `
+      <input id="inp-fname" type="text" placeholder="Tên gia đình (vd: Nguyễn Family)" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3">
+      <div class="bg-surface rounded-2xl p-4 border border-borderline mb-3">
+        <h4 class="font-bold text-main text-sm mb-3 flex items-center gap-2"><i class="fa-solid fa-user-shield text-primary"></i> Admin đầu tiên</h4>
+        <input id="inp-fadmin-user" type="text" placeholder="Username" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none mb-2">
+        <input id="inp-fadmin-name" type="text" placeholder="Tên hiển thị" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none mb-2">
+        <input id="inp-fadmin-pass" type="text" placeholder="Mật khẩu" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none">
+      </div>
+      <label class="flex items-center gap-3 bg-input p-4 rounded-xl border border-borderline cursor-pointer hover:bg-primary/5 transition-all">
+        <input id="inp-copy-template" type="checkbox" class="w-5 h-5 accent-primary rounded">
+        <div>
+          <div class="font-bold text-main text-sm">Áp dụng công việc mẫu</div>
+          <div class="text-[10px] text-muted">Copy công việc từ gia đình của tôi</div>
+        </div>
+      </label>
+    `;
+    saveBtn.onclick = () => saveFamilyData(null);
+  }
+
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
+function closeFamilyModal() {
+  document.getElementById('family-modal').classList.add('hidden');
+  document.getElementById('family-modal').classList.remove('flex');
+}
+
+async function saveFamilyData(familyId) {
+  const familyName = document.getElementById('inp-fname').value.trim();
+  if (!familyName) return showToast('Nhập tên gia đình!', 'error');
+
+  showLoading(true);
+
+  if (familyId) {
+    // Update existing family
+    const { error } = await supabaseClient.from('families').update({ family_name: familyName }).eq('id', familyId);
+    showLoading(false);
+    if (error) return showToast('Lỗi: ' + error.message, 'error');
+    showToast('Cập nhật thành công!', 'success');
+  } else {
+    // Create new family
+    const adminUser = document.getElementById('inp-fadmin-user').value.trim();
+    const adminName = document.getElementById('inp-fadmin-name').value.trim();
+    const adminPass = document.getElementById('inp-fadmin-pass').value.trim();
+    if (!adminUser || !adminName || !adminPass) {
+      showLoading(false);
+      return showToast('Nhập đầy đủ thông tin Admin!', 'error');
+    }
+
+    // Check duplicate username
+    const { data: existingUser } = await supabaseClient.from('users').select('username').eq('username', adminUser);
+    if (existingUser && existingUser.length > 0) {
+      showLoading(false);
+      return showToast('Username đã tồn tại!', 'error');
+    }
+
+    // Create family
+    const { data: newFamily, error: famErr } = await supabaseClient.from('families').insert([{ family_name: familyName, created_by: currentUser.username }]).select().single();
+    if (famErr) { showLoading(false); return showToast('Lỗi tạo gia đình: ' + famErr.message, 'error'); }
+
+    // Create admin user for new family
+    const { error: userErr } = await supabaseClient.from('users').insert([{
+      username: adminUser, name: adminName, password: adminPass,
+      role: 'Admin', points: 0, family_id: newFamily.id
+    }]);
+    if (userErr) { showLoading(false); return showToast('Lỗi tạo Admin: ' + userErr.message, 'error'); }
+
+    // Copy template tasks if checked
+    const copyTemplate = document.getElementById('inp-copy-template').checked;
+    if (copyTemplate && getFamilyId()) {
+      await copyTemplateTasks(newFamily.id, familyName, true);
+    }
+
+    showLoading(false);
+    showToast(`Gia đình "${familyName}" đã được tạo!`, 'mega-success');
+    if (typeof confetti === 'function') confetti({ particleCount: 150, spread: 80, origin: { y: 0.5 }, zIndex: 9999 });
+  }
+
+  closeFamilyModal();
+  loadAdminData('families');
+}
+
+async function copyTemplateTasks(targetFamilyId, targetFamilyName, silent = false) {
+  if (!silent && !confirm(`Copy tất cả công việc mẫu sang "${targetFamilyName}"?`)) return;
+  if (!silent) showLoading(true);
+
+  // Get tasks from my family
+  const { data: myTasks } = await supabaseClient.from('tasks').select('*').eq('family_id', getFamilyId());
+  if (myTasks && myTasks.length > 0) {
+    const tasksToInsert = myTasks.map(t => ({
+      task_name: t.task_name,
+      icon: t.icon,
+      frequency: t.frequency,
+      schedule: t.schedule,
+      points: t.points,
+      penalty: t.penalty,
+      calc_admin: t.calc_admin,
+      family_id: targetFamilyId
+    }));
+    const { error } = await supabaseClient.from('tasks').insert(tasksToInsert);
+    if (error) {
+      if (!silent) showLoading(false);
+      return showToast('Lỗi copy tasks: ' + error.message, 'error');
+    }
+  }
+
+  // Also copy rewards
+  const { data: myRewards } = await supabaseClient.from('rewards').select('*').eq('family_id', getFamilyId());
+  if (myRewards && myRewards.length > 0) {
+    const rewardsToInsert = myRewards.map(r => ({
+      reward_name: r.reward_name,
+      icon: r.icon,
+      cost: r.cost,
+      family_id: targetFamilyId
+    }));
+    await supabaseClient.from('rewards').insert(rewardsToInsert);
+  }
+
+  if (!silent) {
+    showLoading(false);
+    showToast(`Đã copy công việc mẫu sang "${targetFamilyName}"!`, 'mega-success');
+    loadAdminData('families');
+  }
+}
+
+async function deleteFamilyData(familyId) {
+  if (!confirm('CẢNH BÁO: Xoá gia đình sẽ xoá TẤT CẢ thành viên, công việc, phần thưởng, lịch sử của gia đình này. Bạn chắc chắn?')) return;
+  if (!confirm('Xác nhận lần cuối: KHÔNG THỂ hoàn tác. Tiếp tục?')) return;
+
+  showLoading(true);
+  
+  // Get all users in this family
+  const { data: famUsers } = await supabaseClient.from('users').select('username').eq('family_id', familyId);
+  const usernames = (famUsers || []).map(u => u.username);
+
+  // Delete transactions of family users
+  if (usernames.length > 0) {
+    await supabaseClient.from('transactions').delete().in('username', usernames);
+  }
+
+  // Get all tasks in this family
+  const { data: famTasks } = await supabaseClient.from('tasks').select('id').eq('family_id', familyId);
+  const taskIds = (famTasks || []).map(t => t.id);
+
+  // Delete task_logs for family tasks
+  if (taskIds.length > 0) {
+    await supabaseClient.from('task_logs').delete().in('task_id', taskIds);
+  }
+
+  // Delete tasks, rewards, users, then family
+  await supabaseClient.from('tasks').delete().eq('family_id', familyId);
+  await supabaseClient.from('rewards').delete().eq('family_id', familyId);
+  await supabaseClient.from('users').delete().eq('family_id', familyId);
+  await supabaseClient.from('families').delete().eq('id', familyId);
+
+  showLoading(false);
+  showToast('Đã xoá gia đình!', 'success');
+  loadAdminData('families');
 }
 
 window.onload = () => { setTimeout(checkLoginStatus, 500); };

@@ -464,6 +464,8 @@
           class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Nghỉ lễ</button>
         <button id="admin-tab-rewards" onclick="loadAdminData('rewards')"
           class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Phần thưởng</button>
+        <button id="admin-tab-families" onclick="loadAdminData('families')"
+          class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale hidden"><i class="fa-solid fa-crown text-yellow-500 mr-1"></i>Gia đình</button>
       </div>
       <div id="admin-list-container" class="space-y-3"></div>
     </section>
@@ -541,6 +543,23 @@
       <div class="p-5 border-t border-borderline bg-input"><button onclick="saveAdjustPoints()"
           class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Cập
           nhật ngay</button></div>
+    </div>
+  </div>
+
+  <!-- FAMILY MODAL -->
+  <div id="family-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
+        <h3 id="family-modal-title" class="font-bold text-main text-lg">Tạo Gia Đình Mới</h3>
+        <button onclick="closeFamilyModal()"
+          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+            class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div id="family-modal-body" class="p-5 overflow-y-auto"></div>
+      <div class="p-5 border-t border-borderline bg-input">
+        <button id="family-modal-save-btn"
+          class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Tạo gia đình</button>
+      </div>
     </div>
   </div>
 
