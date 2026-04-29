@@ -470,6 +470,64 @@
       </div>
       <div id="admin-list-container" class="space-y-3"></div>
     </section>
+
+    <!-- VIEW: GUIDE -->
+    <section id="view-guide" class="view-section hidden">
+      <div class="flex items-center gap-3 mb-6">
+        <div class="w-12 h-12 rounded-[16px] bg-primary/20 text-primary flex items-center justify-center text-2xl shadow-inner"><i class="fa-solid fa-book-open"></i></div>
+        <div>
+          <h2 class="text-xl font-black text-main">Hướng Dẫn</h2>
+          <p class="text-xs text-muted font-medium mt-0.5">Sử dụng Quản lý Việc nhà</p>
+        </div>
+      </div>
+      
+      <div class="space-y-4 pb-4">
+        <!-- Section 1 -->
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
+          <h3 class="font-bold text-primary text-sm mb-2 flex items-center gap-2"><i class="fa-solid fa-right-to-bracket"></i> Đăng nhập & Vai trò</h3>
+          <p class="text-sm text-main mb-2"><span class="font-bold">Đăng nhập:</span> Nhập Tên đăng nhập & Mật khẩu được cấp. Hệ thống tự động ghi nhớ.</p>
+          <div class="bg-input rounded-xl p-3 text-xs text-main space-y-2 border border-borderline">
+            <div class="flex items-start gap-2"><div class="w-5 text-center shrink-0">👤</div><div><b>User:</b> Xem & làm việc, đổi quà.</div></div>
+            <div class="flex items-start gap-2"><div class="w-5 text-center shrink-0">🛡️</div><div><b>Moderator:</b> Thêm quyền Duyệt việc.</div></div>
+            <div class="flex items-start gap-2"><div class="w-5 text-center shrink-0">⚙️</div><div><b>Admin:</b> Thêm quyền quản lý việc, người, quà.</div></div>
+            <div class="flex items-start gap-2"><div class="w-5 text-center shrink-0">👑</div><div><b>Super Admin:</b> Quản lý đa gia đình.</div></div>
+          </div>
+        </div>
+
+        <!-- Section 2 -->
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
+          <h3 class="font-bold text-primary text-sm mb-2 flex items-center gap-2"><i class="fa-solid fa-clipboard-list"></i> Nhận Việc & Điểm</h3>
+          <p class="text-sm text-main mb-2">Bấm <b>👆</b> để nhận việc. Admin duyệt ✅ mới được cộng điểm thưởng.</p>
+          <ul class="text-xs text-main list-disc pl-4 space-y-1">
+            <li><b>Việc hàng ngày (Daily):</b> Bắt buộc, trừ điểm nếu không làm.</li>
+            <li><b>Việc định kỳ (Weekly/Monthly):</b> Vào ngày cố định, trừ điểm nếu bỏ.</li>
+            <li><b>Việc kiếm thêm (Adhoc):</b> Không bắt buộc, chỉ cộng điểm.</li>
+          </ul>
+          <div class="mt-2 bg-gradient-to-r from-teal-400/20 to-emerald-500/20 p-2 rounded-lg text-xs font-medium text-main border border-teal-500/20">🏖️ <b>Nghỉ lễ:</b> Không làm không bị trừ điểm, làm vẫn có thưởng.</div>
+        </div>
+
+        <!-- Section 3 -->
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
+          <h3 class="font-bold text-primary text-sm mb-2 flex items-center gap-2"><i class="fa-solid fa-gift"></i> Đổi Phần Thưởng</h3>
+          <p class="text-sm text-main mb-1">Khi đủ điểm, bấm <b>"Đổi quà luôn"</b> ở cuối trang chủ. Điểm sẽ bị trừ ngay lập tức!</p>
+          <div class="flex gap-2 text-[10px] mt-2">
+            <span class="bg-amber-500/20 text-amber-500 px-2 py-1 rounded border border-amber-500/20">🟡 Chờ trao</span>
+            <span class="bg-blue-500/20 text-blue-500 px-2 py-1 rounded border border-blue-500/20">🔵 Đang giao</span>
+            <span class="bg-success/20 text-success px-2 py-1 rounded border border-success/20">✅ Đã nhận</span>
+          </div>
+        </div>
+
+        <!-- Section 4 -->
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
+          <h3 class="font-bold text-primary text-sm mb-2 flex items-center gap-2"><i class="fa-solid fa-shield-halved"></i> Dành cho Quản trị viên</h3>
+          <ul class="text-xs text-main list-disc pl-4 space-y-1">
+            <li><b>Duyệt việc:</b> Vào tab Quản trị → Duyệt việc. Bấm ✅ để cộng điểm.</li>
+            <li><b>Reset điểm:</b> Nút 🔄 trong tab Thành viên sẽ đưa điểm cả nhà về 0.</li>
+            <li><b>Calc Admin:</b> Nếu ô này bật khi tạo việc, Admin KHÔNG làm cũng bị trừ điểm.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
   </main>
 
   <nav
@@ -483,6 +541,9 @@
     <button id="nav-history" onclick="switchTab('history')"
       class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16"><i
         class="fa-solid fa-clock-rotate-left text-lg"></i><span class="text-[10px] font-bold">Lịch sử</span></button>
+    <button id="nav-guide" onclick="switchTab('guide')"
+      class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16"><i
+        class="fa-solid fa-book-open text-lg"></i><span class="text-[10px] font-bold">H.Dẫn</span></button>
     <button id="nav-admin" onclick="switchTab('admin')"
       class="nav-btn flex flex-col items-center gap-1.5 text-muted active-scale w-16 hidden"><i
         class="fa-solid fa-shield-halved text-lg"></i><span class="text-[10px] font-bold">Quản trị</span></button>
