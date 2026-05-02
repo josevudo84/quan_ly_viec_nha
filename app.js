@@ -967,8 +967,8 @@ function renderTaskReport() {
   for (let d = new Date(effectiveStartDate); d <= actualEndDate; d.setDate(d.getDate() + 1)) {
     const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-    // Bug fix #1: Skip holidays when counting missed tasks (was missing before)
-    if (checkIfHoliday(d, tasks)) continue;
+    // Determine if today is a holiday (to skip missed task penalties, but still count completions)
+    const isHoliday = checkIfHoliday(d, tasks);
 
     const dayOfWeek = d.getDay(); const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
     const weekOfMonth = Math.ceil(d.getDate() / 7);
@@ -986,27 +986,17 @@ function renderTaskReport() {
         const usernamesToCheck = filterUser === 'all' ? (currentReportData.users || []).map(u => u.username) : [filterUser];
         
         // Handle completions
-        if (filterUser === 'all') {
-           // For 'all' view, count each unique user completion
-           (currentReportData.users || []).forEach(uName => {
-              const log = logMap[t.id + '_' + pId + '_' + uName];
-              if (log) {
-                 completedTotal++;
-                 completedMap[t.id].times++;
-                 completedMap[t.id].pts += t.points;
-              }
-           });
-        } else {
-           const log = logMap[t.id + '_' + pId + '_' + filterUser];
+        usernamesToCheck.forEach(uName => {
+           const log = logMap[t.id + '_' + pId + '_' + uName];
            if (log) {
               completedTotal++;
               completedMap[t.id].times++;
               completedMap[t.id].pts += t.points;
            }
-        }
+        });
 
         // Handle misses
-        if (t.penalty > 0 && dateStr < todayStrReport) {
+        if (!isHoliday && t.penalty > 0 && dateStr < todayStrReport) {
            if (filterUser === 'all') {
               if (pType === 'all') {
                  // Shared task, missed by family if no one did it
