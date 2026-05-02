@@ -519,7 +519,7 @@ async function loadHistoryData() {
   const { data: logs } = await supabaseClient.from('task_logs').select('*').eq('status', 'Approved');
 
   const logMap = {};
-  if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id] = true);
+  if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id + '_' + l.username] = true);
 
   let historyItems = [];
 
@@ -612,34 +612,51 @@ async function loadHistoryData() {
         else if (t.frequency === 'Adhoc' && t.schedule === dateStr) { isDue = true; pId = dateStr; }
 
         if (isDue && t.penalty > 0) {
-          if (!logMap[t.id + '_' + pId]) {
-            let shouldAdd = true;
-            if (filterUser !== 'all' && t.calc_admin === false) {
-              let userObj = usersList.find(u => u.username === filterUser) || currentUser;
-              if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldAdd = false;
-            }
-
-            if (shouldAdd) {
-              let fullName = 'Toàn Đội';
-              if (filterUser !== 'all') {
-                if (typeof usersList !== 'undefined' && usersList) {
-                  const u = usersList.find(x => x.username === filterUser);
-                  if (u && u.name) fullName = u.name;
-                } else {
-                  fullName = filterUser;
-                }
+          const pType = t.penalty_type || 'all';
+          const usernamesToCheck = filterUser === 'all' ? (usersList.map(u => u.username)) : [filterUser];
+          
+          usernamesToCheck.forEach(uName => {
+            if (!logMap[t.id + '_' + pId + '_' + uName]) {
+              let shouldAdd = true;
+              
+              // Handle 'all' penalty: if someone did it, no one is penalized
+              if (pType === 'all') {
+                const anyoneDidIt = usersList.some(u => logMap[t.id + '_' + pId + '_' + u.username]);
+                if (anyoneDidIt) shouldAdd = false;
               }
 
-              historyItems.push({
-                date: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59),
-                type: 'Missed',
-                actionText: 'Chưa xong',
-                taskName: t.task_name,
-                userName: fullName,
-                amount: t.penalty
-              });
+              if (shouldAdd && t.calc_admin === false) {
+                let userObj = usersList.find(u => u.username === uName) || currentUser;
+                if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldAdd = false;
+              }
+
+              if (shouldAdd) {
+                let fullName = 'Toàn Đội';
+                if (filterUser !== 'all' || pType === 'individual') {
+                  const u = usersList.find(x => x.username === uName);
+                  if (u && u.name) fullName = u.name;
+                  else fullName = uName;
+                }
+                
+                // Avoid duplicates for 'all' penalty when viewing 'all' users
+                if (filterUser === 'all' && pType === 'all') {
+                   const alreadyAdded = historyItems.some(h => h.type === 'Missed' && h.taskName === t.task_name && h.date.getTime() === new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59).getTime());
+                   if (alreadyAdded) shouldAdd = false;
+                }
+
+                if (shouldAdd) {
+                  historyItems.push({
+                    date: new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59),
+                    type: 'Missed',
+                    actionText: 'Chưa xong',
+                    taskName: t.task_name,
+                    userName: fullName,
+                    amount: t.penalty
+                  });
+                }
+              }
             }
-          }
+          });
         }
       });
     }
@@ -857,7 +874,7 @@ async function loadReportData(startDate, endDate) {
   if (appStartDate && effectiveStartDate < appStartDate) effectiveStartDate = new Date(appStartDate);
 
   const logMap = {};
-  if (logs) logs.forEach(l => { if (l.status === 'Approved') logMap[l.task_id + '_' + l.period_id] = true; });
+  if (logs) logs.forEach(l => { if (l.status === 'Approved') logMap[l.task_id + '_' + l.period_id + '_' + l.username] = true; });
 
   const todayStrGlobal = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
 
@@ -881,19 +898,27 @@ async function loadReportData(startDate, endDate) {
       else if (t.frequency === 'Adhoc' && t.schedule === dateStr) { isDue = true; pId = dateStr; }
 
       if (isDue && t.penalty > 0) {
-        if (!logMap[t.id + '_' + pId]) {
-          // Missed task, apply penalty to everyone legally liable
-          Object.keys(reportData).forEach(username => {
-            let shouldPenalize = true;
-            if (t.calc_admin === false) {
-              const role = reportData[username].role;
-              if (role === 'Admin' || role === 'Moderator') shouldPenalize = false;
-            }
-            if (shouldPenalize) {
-              reportData[username].penalty += Number(t.penalty || 0);
-            }
-          });
-        }
+        const pType = t.penalty_type || 'all';
+        Object.keys(reportData).forEach(username => {
+          let hasLog = logMap[t.id + '_' + pId + '_' + username];
+          let shouldPenalize = false;
+
+          if (pType === 'all') {
+            const anyoneDidIt = Object.keys(reportData).some(uname => logMap[t.id + '_' + pId + '_' + uname]);
+            if (!anyoneDidIt) shouldPenalize = true;
+          } else {
+            if (!hasLog) shouldPenalize = true;
+          }
+
+          if (shouldPenalize && t.calc_admin === false) {
+            const role = reportData[username].role;
+            if (role === 'Admin' || role === 'Moderator') shouldPenalize = false;
+          }
+
+          if (shouldPenalize) {
+            reportData[username].penalty += Number(t.penalty || 0);
+          }
+        });
       }
     });
   }
@@ -915,7 +940,12 @@ function renderTaskReport() {
 
   const logMap = {};
   logs.forEach(l => {
-    if (l.status === 'Approved') logMap[l.task_id + '_' + l.period_id] = l;
+    if (l.status === 'Approved') {
+        const key = l.task_id + '_' + l.period_id + '_' + l.username;
+        logMap[key] = l;
+        // Also keep a general key for 'all' logic
+        if (!logMap[l.task_id + '_' + l.period_id]) logMap[l.task_id + '_' + l.period_id] = l;
+    }
   });
 
   let completedTotal = 0, missedTotal = 0;
@@ -952,28 +982,62 @@ function renderTaskReport() {
       else if (t.frequency === 'Adhoc' && t.schedule === dateStr) { isDue = true; pId = dateStr; }
 
       if (isDue) {
-        const log = logMap[t.id + '_' + pId];
-        if (log) {
-          if (filterUser === 'all' || log.username === filterUser) {
-            completedTotal++;
-            completedMap[t.id].times++;
-            completedMap[t.id].pts += t.points;
-          }
+        const pType = t.penalty_type || 'all';
+        const usernamesToCheck = filterUser === 'all' ? (currentReportData.users || []).map(u => u.username) : [filterUser];
+        
+        // Handle completions
+        if (filterUser === 'all') {
+           // For 'all' view, count each unique user completion
+           (currentReportData.users || []).forEach(uName => {
+              const log = logMap[t.id + '_' + pId + '_' + uName];
+              if (log) {
+                 completedTotal++;
+                 completedMap[t.id].times++;
+                 completedMap[t.id].pts += t.points;
+              }
+           });
         } else {
-          // Bug fix #2: Count missed tasks for individual users too (not just 'all')
-          if (t.penalty > 0 && dateStr < todayStrReport) {
-            let shouldCount = true;
-            // When viewing a specific user, check calc_admin rules
-            if (filterUser !== 'all' && t.calc_admin === false) {
-              const userObj = (currentReportData.users || []).find(u => u.username === filterUser) || currentUser;
-              if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldCount = false;
-            }
-            if (shouldCount) {
-              missedTotal++;
-              missedMap[t.id].times++;
-              missedMap[t.id].pts += t.penalty;
-            }
-          }
+           const log = logMap[t.id + '_' + pId + '_' + filterUser];
+           if (log) {
+              completedTotal++;
+              completedMap[t.id].times++;
+              completedMap[t.id].pts += t.points;
+           }
+        }
+
+        // Handle misses
+        if (t.penalty > 0 && dateStr < todayStrReport) {
+           usernamesToCheck.forEach(uName => {
+              const hasLog = logMap[t.id + '_' + pId + '_' + uName];
+              let isMissed = false;
+              
+              if (pType === 'all') {
+                 const anyoneDidIt = (currentReportData.users || []).some(un => logMap[t.id + '_' + pId + '_' + un]);
+                 if (!anyoneDidIt) {
+                    // For 'all' view and 'all' penalty, only count once per task/period
+                    if (filterUser === 'all') {
+                       if (uName === currentReportData.users[0].username) isMissed = true; 
+                    } else {
+                       isMissed = true;
+                    }
+                 }
+              } else {
+                 if (!hasLog) isMissed = true;
+              }
+
+              if (isMissed) {
+                let shouldCount = true;
+                if (t.calc_admin === false) {
+                  const userObj = (currentReportData.users || []).find(u => u.username === uName) || currentUser;
+                  if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldCount = false;
+                }
+                if (shouldCount) {
+                  missedTotal++;
+                  missedMap[t.id].times++;
+                  missedMap[t.id].pts += t.penalty;
+                }
+              }
+           });
         }
       }
     });
@@ -1390,6 +1454,13 @@ function openModal(type, item = null) {
                 <div><label class="block text-[10px] text-muted mb-1 font-bold">PHẠT (-)</label><input id="inp-tpenalty" type="number" placeholder="Điểm" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-red-500" value="${item ? item.penalty : '0'}"></div>
             </div>
             <div class="mt-4">
+                <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Hình thức trừ điểm (nếu không làm)</label>
+                <select id="inp-tpenaltytype" class="w-full bg-input border border-borderline rounded-2xl px-4 py-3 text-main text-sm font-medium outline-none">
+                    <option value="all" ${!item || item.penalty_type !== 'individual' ? 'selected' : ''}>Trừ tất cả thành viên</option>
+                    <option value="individual" ${item && item.penalty_type === 'individual' ? 'selected' : ''}>Trừ từng người không làm</option>
+                </select>
+            </div>
+            <div class="mt-4">
                 <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tính điểm cho Admin & Moderator</label>
                 <select id="inp-tcalcadmin" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none">
                     <option value="true" ${!item || item.calc_admin !== false ? 'selected' : ''}>Có cộng/trừ bình thường</option>
@@ -1455,6 +1526,7 @@ async function saveData(type, id) {
       const pts = type === 'tasks' ? document.getElementById('inp-tpoints').value : 0;
       const pen = type === 'tasks' ? (document.getElementById('inp-tpenalty').value || 0) : 0;
       const calc_admin = type === 'tasks' ? document.getElementById('inp-tcalcadmin').value === 'true' : false;
+      const penalty_type = type === 'tasks' ? document.getElementById('inp-tpenaltytype').value : 'all';
       let sched = null;
       if (type === 'tasks') {
         sched = document.getElementById('inp-tsched') ? document.getElementById('inp-tsched').value : null;
@@ -1471,7 +1543,7 @@ async function saveData(type, id) {
       else if (freq === 'Weekly' || freq === 'Monthly') { finalSched = sched ? parseInt(sched) : null; }
       else if (freq === 'Adhoc' || freq === 'Holiday') { finalSched = null; finalIcon = `${icon}|${sched}`; }
 
-      const data = { task_name: name, icon: finalIcon, frequency: freq, schedule: finalSched, points: pts, penalty: pen, calc_admin: calc_admin, family_id: getFamilyId() };
+      const data = { task_name: name, icon: finalIcon, frequency: freq, schedule: finalSched, points: pts, penalty: pen, calc_admin: calc_admin, penalty_type: penalty_type, family_id: getFamilyId() };
       if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; }
       else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; }
     } else if (type === 'rewards') {
