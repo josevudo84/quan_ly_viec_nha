@@ -463,6 +463,10 @@
           class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Thành viên</button>
         <button id="admin-tab-tasks" onclick="loadAdminData('tasks')"
           class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Công việc</button>
+        <button id="admin-tab-violations" onclick="loadAdminData('violations')"
+          class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Lỗi vi phạm</button>
+        <button id="admin-tab-penalties" onclick="loadAdminData('penalties')"
+          class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Lịch sử phạt</button>
         <button id="admin-tab-holidays" onclick="loadAdminData('holidays')"
           class="whitespace-nowrap px-4 py-2 rounded-xl text-xs font-bold text-muted active-scale">Nghỉ lễ</button>
         <button id="admin-tab-rewards" onclick="loadAdminData('rewards')"
@@ -605,6 +609,60 @@
       <div class="p-5 border-t border-borderline bg-input"><button onclick="saveAdjustPoints()"
           class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Cập
           nhật ngay</button></div>
+    </div>
+  </div>
+
+  <!-- RECORD PENALTY MODAL -->
+  <div id="penalty-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+    <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
+        <h3 class="font-bold text-main text-lg">Ghi Nhận Phạt Điểm</h3>
+        <button onclick="closePenaltyModal()"
+          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+            class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="p-5 overflow-y-auto space-y-4">
+        <div>
+          <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">CHỌN LỖI VI PHẠM</label>
+          <select id="pen-type" onchange="updatePenaltyDefaultPoints()"
+            class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none">
+            <option value="custom">Lỗi khác (Tự nhập)</option>
+          </select>
+        </div>
+        
+        <div id="pen-custom-reason-box">
+          <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">LÝ DO CỤ THỂ</label>
+          <input id="pen-reason" type="text" placeholder="Nhập lý do vi phạm..."
+            class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">SỐ ĐIỂM PHẠT</label>
+            <div class="relative">
+              <span class="absolute left-4 top-1/2 -translate-y-1/2 text-red-500 font-bold">-</span>
+              <input id="pen-amount" type="number" placeholder="Pts"
+                class="w-full bg-input border border-borderline rounded-xl pl-7 pr-4 py-3 text-main text-sm font-black outline-none">
+            </div>
+          </div>
+          <div>
+            <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">NGÀY VI PHẠM</label>
+            <input id="pen-date" type="date"
+              class="w-full bg-input border border-borderline rounded-xl px-3 py-3 text-main text-sm font-bold outline-none">
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-[10px] text-muted mb-2 font-bold tracking-wider">CHỌN THÀNH VIÊN BỊ PHẠT</label>
+          <div id="pen-users-list" class="space-y-2 max-h-40 overflow-y-auto p-2 bg-input rounded-xl border border-borderline">
+            <!-- User checkboxes will be here -->
+          </div>
+        </div>
+      </div>
+      <div class="p-5 border-t border-borderline bg-input">
+        <button onclick="saveBulkPenalty()"
+          class="w-full bg-red-500 text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-red-500/30">Xác nhận phạt</button>
+      </div>
     </div>
   </div>
 

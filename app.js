@@ -554,6 +554,9 @@ async function loadHistoryData() {
               taskName = taskName.replace('Chưa xong: ', '').trim();
           } else if (taskName.startsWith('Bị trừ điểm: ')) {
               taskName = taskName.replace('Bị trừ điểm: ', '').trim();
+          } else if (taskName.startsWith('Bị phạt lỗi: ')) {
+              actionText = 'Vi phạm';
+              taskName = taskName.replace('Bị phạt lỗi: ', '').trim();
           }
       }
       else { 
@@ -1084,6 +1087,32 @@ async function loadAdminData(type) {
       if (getFamilyId()) rewardsQuery = rewardsQuery.eq('family_id', getFamilyId());
       const res = await rewardsQuery; data = res.data || [];
     }
+    else if (type === 'violations') {
+      addBtn.onclick = () => openModal('violations');
+      let tasksQuery = supabaseClient.from('tasks').select('*');
+      if (getFamilyId()) tasksQuery = tasksQuery.eq('family_id', getFamilyId());
+      const res = await tasksQuery; data = unpackTasks(res.data || []).filter(t => t.frequency === 'Violation');
+      // Add a special button to record a penalty using these types
+      const recordBtnHtml = `<button onclick="openPenaltyModal()" class="w-full bg-red-500 text-white font-bold py-3 rounded-xl mb-4 active-scale shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"><i class="fa-solid fa-gavel"></i> Ghi nhận phạt ngay</button>`;
+      document.getElementById('admin-list-container').innerHTML = recordBtnHtml;
+    }
+    else if (type === 'penalties') {
+      addBtn.style.display = 'none'; // Use the record button instead
+      let usersQuery = supabaseClient.from('users').select('*');
+      if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
+      const { data: usersData } = await usersQuery;
+      const familyUsernames = (usersData || []).map(u => u.username);
+      
+      let penQuery = supabaseClient.from('transactions').select('*').eq('type', 'Penalty').order('created_at', { ascending: false }).limit(50);
+      if (familyUsernames.length > 0) penQuery = penQuery.in('username', familyUsernames);
+      const res = await penQuery; data = res.data || [];
+      data = data.map(item => {
+          const u = (usersData || []).find(x => x.username === item.username);
+          return {...item, user_name: u ? u.name : item.username};
+      });
+      const recordBtnHtml = `<button onclick="openPenaltyModal()" class="w-full bg-red-500 text-white font-bold py-3 rounded-xl mb-4 active-scale shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"><i class="fa-solid fa-gavel"></i> Ghi nhận phạt ngay</button>`;
+      document.getElementById('admin-list-container').innerHTML = recordBtnHtml;
+    }
     showLoading(false); renderAdminList(type, data);
   }
 }
@@ -1251,20 +1280,39 @@ function renderAdminList(type, data) {
       subtitle = `<span class="text-yellow-500 font-bold">${item.cost} pts</span>`;
       prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-gift'}"></i></div>`;
     }
+    else if (type === 'violations') {
+      id = item.id; title = item.task_name;
+      subtitle = `<span class="text-red-500 font-bold">Phạt: -${item.penalty} pts</span>`;
+      prefixHTML = `<div class="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500 shadow-inner text-base"><i class="fa-solid fa-triangle-exclamation"></i></div>`;
+    }
+    else if (type === 'penalties') {
+      id = item.id; title = item.description;
+      const dateStr = new Date(item.created_at).toLocaleDateString('vi-VN');
+      subtitle = `<span class="bg-surface px-1.5 rounded items-center mr-1">${item.user_name}</span> <span class="text-red-500 font-bold">-${item.amount} pts</span> | ${dateStr}`;
+      prefixHTML = `<div class="w-10 h-10 rounded-xl bg-red-500/10 flex items-center justify-center text-red-500 shadow-inner text-base"><i class="fa-solid fa-circle-minus"></i></div>`;
+      actionHTML = ''; // View only history in this tab
+    }
 
     window[`editData_${id}`] = item;
-    container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-4 flex justify-between items-center shadow-sm">
+    const itemHtml = `
+        <div class="bg-card border border-borderline rounded-2xl p-4 flex justify-between items-center shadow-sm mb-3">
             <div class="flex gap-3 items-center">
                 ${prefixHTML}
                 <div><h4 class="font-bold text-main text-sm mb-1">${title}</h4><div class="text-[10px] text-muted flex items-center">${subtitle}</div></div>
             </div>
             <div class="flex gap-1.5">
                 ${actionHTML}
-                <button onclick="openModal('${type}', window['editData_${id}'])" class="w-8 h-8 rounded-lg bg-surface text-main flex items-center justify-center active-scale"><i class="fa-solid fa-pen text-xs"></i></button>
-                <button onclick="deleteData('${type}', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>
+                ${type !== 'penalties' ? `
+                <button onclick="openModal('${type === 'violations' ? 'violations' : type}', window['editData_${id}'])" class="w-8 h-8 rounded-lg bg-surface text-main flex items-center justify-center active-scale"><i class="fa-solid fa-pen text-xs"></i></button>
+                <button onclick="deleteData('${type === 'violations' ? 'tasks' : type}', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>
+                ` : `<button onclick="deleteData('transactions', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>`}
             </div>
         </div>`;
+    if (type === 'violations' || type === 'penalties') {
+      container.innerHTML += itemHtml;
+    } else {
+      container.innerHTML += itemHtml;
+    }
   });
 }
 
@@ -1371,6 +1419,21 @@ function openModal(type, item = null) {
             <input type="hidden" id="inp-icon" value="fa-solid fa-umbrella-beach">
             <input type="hidden" id="inp-tfreq" value="Holiday">
         `;
+  } else if (type === 'violations') {
+    body.innerHTML = `
+            <input id="inp-tname" type="text" placeholder="Tên lỗi (vd: Quên tắt điện)" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.task_name : ''}">
+            <div class="mt-2">
+                <label class="block text-[10px] text-muted mb-1 font-bold">MỨC PHẠT MẶC ĐỊNH</label>
+                <div class="relative">
+                    <span class="absolute left-4 top-1/2 -translate-y-1/2 text-red-500 font-bold">-</span>
+                    <input id="inp-tpenalty" type="number" placeholder="Điểm" class="w-full bg-input border border-borderline rounded-xl pl-7 pr-4 py-3.5 text-main text-sm font-black outline-none text-red-500" value="${item ? item.penalty : ''}">
+                </div>
+            </div>
+            <input type="hidden" id="inp-tfreq" value="Violation">
+            <input type="hidden" id="inp-tpoints" value="0">
+            <input type="hidden" id="inp-tcalcadmin" value="true">
+            <input type="hidden" id="inp-icon" value="fa-solid fa-triangle-exclamation">
+        `;
   }
 
   modal.classList.remove('hidden'); saveBtn.onclick = () => saveData(type, item ? (type === 'users' ? item.username : item.id) : null);
@@ -1415,6 +1478,12 @@ async function saveData(type, id) {
       const data = { reward_name: document.getElementById('inp-rname').value, icon: document.getElementById('inp-icon').value, cost: document.getElementById('inp-rcost').value, family_id: getFamilyId() };
       if (id) { const res = await supabaseClient.from('rewards').update(data).eq('id', id); error = res.error; }
       else { const res = await supabaseClient.from('rewards').insert([data]); error = res.error; }
+    } else if (type === 'violations') {
+        const name = document.getElementById('inp-tname').value;
+        const pen = document.getElementById('inp-tpenalty').value || 0;
+        const data = { task_name: name, icon: 'fa-solid fa-triangle-exclamation', frequency: 'Violation', schedule: null, points: 0, penalty: pen, calc_admin: true, family_id: getFamilyId() };
+        if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; }
+        else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; }
     }
   } catch (err) { error = err; }
   showLoading(false); if (error) return showToast(error.message, 'error');
@@ -1427,8 +1496,9 @@ async function deleteData(type, id) {
   if (type === 'users') { const res = await supabaseClient.from('users').delete().eq('username', id); error = res.error; }
   else if (type === 'tasks' || type === 'holidays') { const res = await supabaseClient.from('tasks').delete().eq('id', id); error = res.error; }
   else if (type === 'rewards') { const res = await supabaseClient.from('rewards').delete().eq('id', id); error = res.error; }
+  else if (type === 'transactions') { const res = await supabaseClient.from('transactions').delete().eq('id', id); error = res.error; }
   showLoading(false); if (error) return showToast(error.message, 'error');
-  showToast('Đã xoá!'); loadAdminData(type);
+  showToast('Đã xoá!'); loadAdminData(currentAdminType);
 }
 
 // ------ TÍNH NĂNG ADMIN MỚI -------
@@ -1481,6 +1551,108 @@ async function resetAllPoints() {
   showLoading(false);
   showToast('Boom! Đã reset điểm toàn hệ thống về 0.', 'mega-success');
   loadAdminData('users');
+}
+
+// ------ TÍNH NĂNG PHẠT LỖI (BULK) ------
+
+async function openPenaltyModal() {
+  showLoading(true);
+  const { data: users } = await supabaseClient.from('users').select('*').eq('family_id', getFamilyId());
+  const { data: violations } = await supabaseClient.from('tasks').select('*').eq('family_id', getFamilyId()).eq('frequency', 'Violation');
+  showLoading(false);
+
+  const typeSel = document.getElementById('pen-type');
+  typeSel.innerHTML = '<option value="custom">Lỗi khác (Tự nhập)</option>';
+  window.penaltyDataMap = {};
+  if (violations) {
+    violations.forEach(v => {
+      typeSel.innerHTML += `<option value="${v.id}">${v.task_name} (-${v.penalty} pts)</option>`;
+      window.penaltyDataMap[v.id] = v;
+    });
+  }
+
+  const userList = document.getElementById('pen-users-list');
+  userList.innerHTML = '';
+  if (users) {
+    users.forEach(u => {
+      userList.innerHTML += `
+                <label class="flex items-center gap-3 p-2 hover:bg-surface rounded-lg cursor-pointer transition-colors">
+                    <input type="checkbox" name="pen-user-checkbox" value="${u.username}" class="w-4 h-4 rounded border-borderline text-primary focus:ring-primary">
+                    <span class="text-sm font-medium text-main">${u.name}</span>
+                    <span class="text-[10px] text-muted ml-auto">${u.points} pts</span>
+                </label>`;
+    });
+  }
+
+  document.getElementById('pen-amount').value = '';
+  document.getElementById('pen-reason').value = '';
+  document.getElementById('pen-date').valueAsDate = new Date();
+  document.getElementById('penalty-modal').classList.remove('hidden');
+  document.getElementById('penalty-modal').classList.add('flex');
+  updatePenaltyDefaultPoints();
+}
+
+function updatePenaltyDefaultPoints() {
+  const selId = document.getElementById('pen-type').value;
+  const amountInp = document.getElementById('pen-amount');
+  const reasonInp = document.getElementById('pen-reason');
+  const customBox = document.getElementById('pen-custom-reason-box');
+
+  if (selId === 'custom') {
+    amountInp.value = '';
+    reasonInp.value = '';
+    customBox.classList.remove('hidden');
+  } else {
+    const v = window.penaltyDataMap[selId];
+    amountInp.value = v.penalty;
+    reasonInp.value = v.task_name;
+    customBox.classList.add('hidden');
+  }
+}
+
+function closePenaltyModal() {
+  document.getElementById('penalty-modal').classList.add('hidden');
+  document.getElementById('penalty-modal').classList.remove('flex');
+}
+
+async function saveBulkPenalty() {
+  const selId = document.getElementById('pen-type').value;
+  const amount = parseInt(document.getElementById('pen-amount').value);
+  const reason = document.getElementById('pen-reason').value.trim();
+  const dateStr = document.getElementById('pen-date').value;
+  const checkboxes = document.querySelectorAll('input[name="pen-user-checkbox"]:checked');
+
+  if (!amount || amount <= 0) return showToast('Nhập số điểm phạt hợp lệ!', 'error');
+  if (!reason) return showToast('Nhập lý do phạt!', 'error');
+  if (checkboxes.length === 0) return showToast('Chọn ít nhất 1 thành viên bị phạt!', 'error');
+
+  showLoading(true);
+  try {
+    const usernames = Array.from(checkboxes).map(cb => cb.value);
+    for (let username of usernames) {
+      const { data: uData } = await supabaseClient.from('users').select('points').eq('username', username).single();
+      if (uData) {
+        const newPoints = Math.max(0, uData.points - amount);
+        await supabaseClient.from('users').update({ points: newPoints }).eq('username', username);
+        // We use the selected date in the description since transactions.created_at is server-side
+        const displayDate = new Date(dateStr).toLocaleDateString('vi-VN');
+        await supabaseClient.from('transactions').insert([{ 
+            username: username, 
+            type: 'Penalty', 
+            amount: amount, 
+            description: `Bị phạt lỗi: ${reason} (Ngày ${displayDate})` 
+        }]);
+      }
+    }
+    showLoading(false);
+    showToast(`Đã ghi nhận phạt cho ${checkboxes.length} thành viên!`, 'mega-success');
+    closePenaltyModal();
+    loadAdminData(currentAdminType);
+    refreshUserPoints();
+  } catch (err) {
+    showLoading(false);
+    showToast('Lỗi: ' + err.message, 'error');
+  }
 }
 
 // ====== SUPER ADMIN: FAMILY MANAGEMENT ======
