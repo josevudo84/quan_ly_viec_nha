@@ -1007,37 +1007,62 @@ function renderTaskReport() {
 
         // Handle misses
         if (t.penalty > 0 && dateStr < todayStrReport) {
-           usernamesToCheck.forEach(uName => {
-              const hasLog = logMap[t.id + '_' + pId + '_' + uName];
-              let isMissed = false;
-              
+           if (filterUser === 'all') {
               if (pType === 'all') {
-                 const anyoneDidIt = (currentReportData.users || []).some(un => logMap[t.id + '_' + pId + '_' + un]);
+                 // Shared task, missed by family if no one did it
+                 const anyoneDidIt = (currentReportData.users || []).some(u => logMap[t.id + '_' + pId + '_' + u.username]);
                  if (!anyoneDidIt) {
-                    // For 'all' view and 'all' penalty, only count once per task/period
-                    if (filterUser === 'all') {
-                       if (uName === currentReportData.users[0].username) isMissed = true; 
-                    } else {
-                       isMissed = true;
+                    // Check if AT LEAST ONE user is liable to be penalized
+                    const someoneLiable = (currentReportData.users || []).some(u => {
+                       if (t.calc_admin === false && (u.role === 'Admin' || u.role === 'Moderator')) return false;
+                       return true;
+                    });
+                    if (someoneLiable) {
+                       missedTotal++;
+                       missedMap[t.id].times++;
+                       missedMap[t.id].pts += t.penalty;
                     }
                  }
+              } else {
+                 // Individual task, count each user who missed it and is liable
+                 (currentReportData.users || []).forEach(u => {
+                    if (!logMap[t.id + '_' + pId + '_' + u.username]) {
+                       let shouldCount = true;
+                       if (t.calc_admin === false && (u.role === 'Admin' || u.role === 'Moderator')) shouldCount = false;
+                       if (shouldCount) {
+                          missedTotal++;
+                          missedMap[t.id].times++;
+                          missedMap[t.id].pts += t.penalty;
+                       }
+                    }
+                 });
+              }
+           } else {
+              // Specific user view
+              const uName = filterUser;
+              const hasLog = logMap[t.id + '_' + pId + '_' + uName];
+              let isMissed = false;
+
+              if (pType === 'all') {
+                 const anyoneDidIt = (currentReportData.users || []).some(u => logMap[t.id + '_' + pId + '_' + u.username]);
+                 if (!anyoneDidIt) isMissed = true;
               } else {
                  if (!hasLog) isMissed = true;
               }
 
               if (isMissed) {
-                let shouldCount = true;
-                if (t.calc_admin === false) {
-                  const userObj = (currentReportData.users || []).find(u => u.username === uName) || currentUser;
-                  if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldCount = false;
-                }
-                if (shouldCount) {
-                  missedTotal++;
-                  missedMap[t.id].times++;
-                  missedMap[t.id].pts += t.penalty;
-                }
+                 let shouldCount = true;
+                 if (t.calc_admin === false) {
+                    const userObj = (currentReportData.users || []).find(u => u.username === uName) || currentUser;
+                    if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldCount = false;
+                 }
+                 if (shouldCount) {
+                    missedTotal++;
+                    missedMap[t.id].times++;
+                    missedMap[t.id].pts += t.penalty;
+                 }
               }
-           });
+           }
         }
       }
     });
@@ -1138,9 +1163,6 @@ async function loadAdminData(type) {
 
   // Hide menu grid on mobile to save space, or just scroll to container
   // For now, let's keep it but add a back button in the container
-
-  const addBtn = document.getElementById('admin-add-btn');
-  const resetBtn = document.getElementById('admin-reset-btn');
 
   if (type === 'approvals') {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; await loadApprovals();
