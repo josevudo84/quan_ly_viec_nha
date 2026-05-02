@@ -265,7 +265,7 @@ function switchTab(tabId) {
   if (tabId === 'home') loadHomeData();
   if (tabId === 'reports') loadReport(currentReportTimeframe);
   if (tabId === 'history') loadHistoryData();
-  if (tabId === 'admin') loadAdminData('approvals');
+  if (tabId === 'admin') loadAdminData(null);
 }
 
 function unpackTasks(tasks) {
@@ -1109,21 +1109,47 @@ function renderLeaderboard(data) {
 }
 
 async function loadAdminData(type) {
+  const menuGrid = document.getElementById('admin-menu-grid');
+  const listContainer = document.getElementById('admin-list-container');
+  const addBtn = document.getElementById('admin-add-btn');
+  const resetBtn = document.getElementById('admin-reset-btn');
+
+  if (!type) {
+    menuGrid.classList.remove('hidden');
+    listContainer.innerHTML = '';
+    addBtn.style.display = 'none';
+    resetBtn.style.display = 'none';
+    return;
+  }
+  
+  menuGrid.classList.add('hidden');
   currentAdminType = type;
-  document.querySelectorAll('#view-admin button[id^="admin-tab-"]').forEach(el => { el.classList.remove('bg-surface', 'text-main'); el.classList.add('text-muted'); });
-  document.getElementById(`admin-tab-${type}`).classList.add('bg-surface', 'text-main'); document.getElementById(`admin-tab-${type}`).classList.remove('text-muted');
+  
+  document.querySelectorAll('#view-admin button[id^="admin-tab-"]').forEach(el => { 
+    el.classList.remove('border-primary', 'bg-primary/10', 'text-primary', 'shadow-lg'); 
+    el.classList.add('border-borderline', 'bg-card', 'text-muted'); 
+  });
+  
+  const activeBtn = document.getElementById(`admin-tab-${type}`);
+  if (activeBtn) {
+    activeBtn.classList.remove('border-borderline', 'bg-card', 'text-muted');
+    activeBtn.classList.add('border-primary', 'bg-primary/10', 'text-primary');
+  }
+
+  // Hide menu grid on mobile to save space, or just scroll to container
+  // For now, let's keep it but add a back button in the container
 
   const addBtn = document.getElementById('admin-add-btn');
   const resetBtn = document.getElementById('admin-reset-btn');
 
   if (type === 'approvals') {
-    addBtn.style.display = 'none'; resetBtn.style.display = 'none'; loadApprovals();
+    addBtn.style.display = 'none'; resetBtn.style.display = 'none'; await loadApprovals();
   } else if (type === 'reward_approvals') {
-    addBtn.style.display = 'none'; resetBtn.style.display = 'none'; loadRewardApprovals();
+    addBtn.style.display = 'none'; resetBtn.style.display = 'none'; await loadRewardApprovals();
   } else if (type === 'families') {
     addBtn.style.display = 'flex'; resetBtn.style.display = 'none';
     addBtn.onclick = () => openFamilyModal();
-    loadFamiliesData();
+    await loadFamiliesData();
   } else {
     addBtn.style.display = 'flex';
     resetBtn.style.display = (type === 'users' && isAdmin()) ? 'flex' : 'none';
@@ -1178,6 +1204,12 @@ async function loadAdminData(type) {
       document.getElementById('admin-list-container').innerHTML = recordBtnHtml;
     }
     showLoading(false); renderAdminList(type, data);
+  }
+  
+  // Ensure "Back to menu" button is present
+  const backBtnHtml = `<button onclick="loadAdminData(null)" class="flex items-center gap-2 text-xs font-bold text-muted mb-4 active-scale"><i class="fa-solid fa-arrow-left"></i> Quay lại menu quản trị</button>`;
+  if (!listContainer.innerHTML.includes('Quay lại menu quản trị')) {
+    listContainer.innerHTML = backBtnHtml + listContainer.innerHTML;
   }
 }
 
