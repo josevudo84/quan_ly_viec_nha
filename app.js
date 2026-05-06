@@ -308,12 +308,20 @@ async function loadHomeData() {
       }
 
       if (isDue) {
+        const pType = t.penalty_type || 'all';
         let logStatus = 'Not Done', completedByName = '';
         if (logsData) {
-          const log = logsData.find(l => l.task_id === t.id && l.period_id === periodId);
-          if (log) { logStatus = log.status; completedByName = log.users?.name || log.username; }
+          if (pType === 'individual') {
+            // Individual: each user sees their own log status only
+            const myLog = logsData.find(l => l.task_id === t.id && l.period_id === periodId && l.username === currentUser.username);
+            if (myLog) { logStatus = myLog.status; completedByName = myLog.users?.name || myLog.username; }
+          } else {
+            // All: any user's log applies to everyone
+            const log = logsData.find(l => l.task_id === t.id && l.period_id === periodId);
+            if (log) { logStatus = log.status; completedByName = log.users?.name || log.username; }
+          }
         }
-        const formattedTask = { id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, status: logStatus, completedByName, periodId, frequency: t.frequency, icon: t.icon || 'fa-solid fa-clipboard-list' };
+        const formattedTask = { id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, penaltyType: pType, status: logStatus, completedByName, periodId, frequency: t.frequency, icon: t.icon || 'fa-solid fa-clipboard-list' };
         if (!t.penalty || Number(t.penalty) <= 0) {
           adhocTasks.push(formattedTask);
         } else if (t.frequency === 'Daily') {
@@ -414,8 +422,25 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
 
 async function submitTask(taskId, periodId) {
   showLoading(true);
-  const { data: existing } = await supabaseClient.from('task_logs').select('id').eq('task_id', taskId).eq('period_id', periodId).neq('status', 'Rejected');
-  if (existing && existing.length > 0) { showLoading(false); return showToast('Việc này đã có người xí rồi!', 'error'); }
+
+  // Fetch the task to check penalty_type
+  const { data: taskData } = await supabaseClient.from('tasks').select('penalty_type').eq('id', taskId).single();
+  const pType = (taskData && taskData.penalty_type) || 'all';
+
+  let existingQuery = supabaseClient.from('task_logs').select('id').eq('task_id', taskId).eq('period_id', periodId).neq('status', 'Rejected');
+  
+  if (pType === 'individual') {
+    // Individual: only block if THIS user already submitted
+    existingQuery = existingQuery.eq('username', currentUser.username);
+  }
+  // else (all): block if ANY user already submitted (original behavior)
+
+  const { data: existing } = await existingQuery;
+  if (existing && existing.length > 0) {
+    showLoading(false);
+    return showToast(pType === 'individual' ? 'Bạn đã nộp việc này rồi!' : 'Việc này đã có người xí rồi!', 'error');
+  }
+
   const { error } = await supabaseClient.from('task_logs').insert([{ task_id: taskId, period_id: periodId, username: currentUser.username, status: 'Pending Approval' }]);
   showLoading(false);
   if (error) showToast('Lỗi: ' + error.message, 'error'); else {
