@@ -652,7 +652,7 @@ async function loadHistoryData() {
 
               if (shouldAdd && t.calc_admin === false) {
                 let userObj = usersList.find(u => u.username === uName) || currentUser;
-                if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldAdd = false;
+                if (userObj.role === 'Admin' || userObj.role === 'Moderator' || userObj.role === 'Super Admin') shouldAdd = false;
               }
 
               if (shouldAdd) {
@@ -937,7 +937,7 @@ async function loadReportData(startDate, endDate) {
 
           if (shouldPenalize && t.calc_admin === false) {
             const role = reportData[username].role;
-            if (role === 'Admin' || role === 'Moderator') shouldPenalize = false;
+            if (role === 'Admin' || role === 'Moderator' || role === 'Super Admin') shouldPenalize = false;
           }
 
           if (shouldPenalize) {
@@ -1029,7 +1029,7 @@ function renderTaskReport() {
                  if (!anyoneDidIt) {
                     // Check if AT LEAST ONE user is liable to be penalized
                     const someoneLiable = (currentReportData.users || []).some(u => {
-                       if (t.calc_admin === false && (u.role === 'Admin' || u.role === 'Moderator')) return false;
+                       if (t.calc_admin === false && (u.role === 'Admin' || u.role === 'Moderator' || u.role === 'Super Admin')) return false;
                        return true;
                     });
                     if (someoneLiable) {
@@ -1043,7 +1043,7 @@ function renderTaskReport() {
                  (currentReportData.users || []).forEach(u => {
                     if (!logMap[t.id + '_' + pId + '_' + u.username]) {
                        let shouldCount = true;
-                       if (t.calc_admin === false && (u.role === 'Admin' || u.role === 'Moderator')) shouldCount = false;
+                       if (t.calc_admin === false && (u.role === 'Admin' || u.role === 'Moderator' || u.role === 'Super Admin')) shouldCount = false;
                        if (shouldCount) {
                           missedTotal++;
                           missedMap[t.id].times++;
@@ -1069,7 +1069,7 @@ function renderTaskReport() {
                  let shouldCount = true;
                  if (t.calc_admin === false) {
                     const userObj = (currentReportData.users || []).find(u => u.username === uName) || currentUser;
-                    if (userObj.role === 'Admin' || userObj.role === 'Moderator') shouldCount = false;
+                    if (userObj.role === 'Admin' || userObj.role === 'Moderator' || userObj.role === 'Super Admin') shouldCount = false;
                  }
                  if (shouldCount) {
                     missedTotal++;
@@ -1366,7 +1366,7 @@ async function approveTask(logId, isApproved, username, points, taskName, calcAd
     const { data: uData } = await supabaseClient.from('users').select('points, role').eq('username', username).single();
     if (uData) {
       let finalPoints = points;
-      if (calcAdmin === false && (uData.role === 'Admin' || uData.role === 'Moderator')) {
+      if (calcAdmin === false && (uData.role === 'Admin' || uData.role === 'Moderator' || uData.role === 'Super Admin')) {
         finalPoints = 0;
       }
       if (finalPoints > 0) {
@@ -1530,7 +1530,7 @@ function openModal(type, item = null) {
                 </select>
             </div>
             <div class="mt-4">
-                <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tính điểm cho Admin & Moderator</label>
+                <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tính điểm cho Admin, Mod & Super Admin</label>
                 <select id="inp-tcalcadmin" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none">
                     <option value="true" ${!item || item.calc_admin !== false ? 'selected' : ''}>Có cộng/trừ bình thường</option>
                     <option value="false" ${item && item.calc_admin === false ? 'selected' : ''}>Không tính điểm</option>
