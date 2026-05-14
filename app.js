@@ -254,6 +254,11 @@ function initApp() {
   if (famTab) {
     if (isSuperAdmin()) { famTab.classList.remove('hidden'); } else { famTab.classList.add('hidden'); }
   }
+  // Show/hide themes tab for Super Admin
+  const themesTab = document.getElementById('admin-tab-themes');
+  if (themesTab) {
+    if (isSuperAdmin()) { themesTab.classList.remove('hidden'); } else { themesTab.classList.add('hidden'); }
+  }
   switchTab('home');
 }
 
@@ -1179,7 +1184,10 @@ async function loadAdminData(type) {
   // Hide menu grid on mobile to save space, or just scroll to container
   // For now, let's keep it but add a back button in the container
 
-  if (type === 'approvals') {
+  if (type === 'themes') {
+    addBtn.style.display = 'none'; resetBtn.style.display = 'none';
+    renderThemeAdmin();
+  } else if (type === 'approvals') {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; await loadApprovals();
   } else if (type === 'reward_approvals') {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; await loadRewardApprovals();
@@ -2038,11 +2046,13 @@ window.onload = () => { setTimeout(checkLoginStatus, 500); };
 
 // --- THEMES ---
 const THEMES = [
-  { id: 'dark', name: 'Đêm sâu', icon: 'fa-moon', bg: '#1A1D24', primary: '#3B82F6' },
-  { id: 'light', name: 'Sáng sủa', icon: 'fa-sun', bg: '#FFFFFF', primary: '#8B5CF6' },
-  { id: 'sakura', name: 'Hoa anh đào', icon: 'fa-spa', bg: '#FFE4E6', primary: '#F43F5E' },
-  { id: 'matcha', name: 'Trà xanh mộc', icon: 'fa-leaf', bg: '#D1FAE5', primary: '#10B981' },
-  { id: 'cyberpunk', name: 'Neon Cyber', icon: 'fa-bolt', bg: '#1E1B4B', primary: '#EAB308' }
+  { id: 'dark', name: 'Đêm sâu', icon: 'fa-moon', bg: '#1A1D24', primary: '#3B82F6', desc: 'Giao diện tối mặc định' },
+  { id: 'light', name: 'Sáng sủa', icon: 'fa-sun', bg: '#FFFFFF', primary: '#8B5CF6', desc: 'Giao diện sáng cổ điển' },
+  { id: 'apple-dark', name: 'Apple Dark', icon: 'fa-apple-whole', bg: '#000000', primary: '#0071e3', desc: 'Phong cách Apple cao cấp - Tối', premium: true },
+  { id: 'apple-light', name: 'Apple Light', icon: 'fa-apple-whole', bg: '#f5f5f7', primary: '#0071e3', desc: 'Phong cách Apple cao cấp - Sáng', premium: true },
+  { id: 'sakura', name: 'Hoa anh đào', icon: 'fa-spa', bg: '#FFE4E6', primary: '#F43F5E', desc: 'Hồng dịu dàng' },
+  { id: 'matcha', name: 'Trà xanh mộc', icon: 'fa-leaf', bg: '#D1FAE5', primary: '#10B981', desc: 'Xanh mát thiên nhiên' },
+  { id: 'cyberpunk', name: 'Neon Cyber', icon: 'fa-bolt', bg: '#1E1B4B', primary: '#EAB308', desc: 'Neon tương lai' }
 ];
 
 function openThemeModal() {
@@ -2050,11 +2060,15 @@ function openThemeModal() {
   const currentMode = localStorage.getItem('housework_theme') || 'dark';
   THEMES.forEach(t => {
     const isSelected = currentMode === t.id;
+    const premiumBadge = t.premium ? '<span class="text-[9px] font-bold bg-gradient-to-r from-blue-500 to-cyan-400 text-white px-1.5 py-0.5 rounded-full ml-2">PRO</span>' : '';
     container.innerHTML += `
         <div onclick="setAppTheme('${t.id}')" class="flex items-center justify-between p-4 rounded-xl border ${isSelected ? 'border-primary bg-primary/10' : 'border-borderline bg-input'} cursor-pointer active-scale mb-2 transition-all shadow-sm">
             <div class="flex items-center gap-4">
                 <div class="w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md" style="background-color: ${t.primary};"><i class="fa-solid ${t.icon}"></i></div>
-                <div class="font-bold text-main">${t.name}</div>
+                <div>
+                    <div class="font-bold text-main text-sm flex items-center">${t.name}${premiumBadge}</div>
+                    <div class="text-[10px] text-muted">${t.desc}</div>
+                </div>
             </div>
             ${isSelected ? '<i class="fa-solid fa-circle-check text-primary text-xl"></i>' : ''}
         </div>`;
@@ -2066,5 +2080,134 @@ function closeThemeModal() { document.getElementById('theme-modal').classList.ad
 
 function setAppTheme(themeId) {
   if (themeId === 'dark') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', themeId);
-  localStorage.setItem('housework_theme', themeId); openThemeModal();
+  localStorage.setItem('housework_theme', themeId);
+  // Refresh theme modal if open
+  const modal = document.getElementById('theme-modal');
+  if (modal && !modal.classList.contains('hidden')) openThemeModal();
+  // Refresh admin theme panel if open
+  if (currentAdminType === 'themes') renderThemeAdmin();
+}
+
+// --- ADMIN THEME MANAGEMENT (Super Admin) ---
+function renderThemeAdmin() {
+  const container = document.getElementById('admin-list-container');
+  const currentMode = localStorage.getItem('housework_theme') || 'dark';
+  const currentThemeObj = THEMES.find(t => t.id === currentMode) || THEMES[0];
+
+  let html = `<button onclick="loadAdminData(null)" class="flex items-center gap-2 text-xs font-bold text-muted mb-4 active-scale"><i class="fa-solid fa-arrow-left"></i> Quay lại menu quản trị</button>`;
+
+  // Header
+  html += `
+    <div class="bg-card border border-borderline rounded-2xl p-5 mb-4 shadow-sm">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-12 h-12 rounded-[16px] bg-primary/20 text-primary flex items-center justify-center text-2xl shadow-inner">
+          <i class="fa-solid fa-palette"></i>
+        </div>
+        <div>
+          <h3 class="font-bold text-main text-base">Quản lý Giao diện</h3>
+          <p class="text-xs text-muted">Chọn phong cách hiển thị cho ứng dụng</p>
+        </div>
+      </div>
+      <div class="bg-input rounded-xl p-3 flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 rounded-full flex items-center justify-center text-white" style="background-color: ${currentThemeObj.primary};"><i class="fa-solid ${currentThemeObj.icon} text-xs"></i></div>
+          <div>
+            <div class="text-sm font-bold text-main">Đang sử dụng: ${currentThemeObj.name}</div>
+            <div class="text-[10px] text-muted">${currentThemeObj.desc}</div>
+          </div>
+        </div>
+        <i class="fa-solid fa-circle-check text-primary text-lg"></i>
+      </div>
+    </div>`;
+
+  // Apple Premium section
+  html += `
+    <div class="mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <div class="w-6 h-6 rounded-full bg-gradient-to-r from-blue-500 to-cyan-400 flex items-center justify-center">
+          <i class="fa-solid fa-crown text-white text-[10px]"></i>
+        </div>
+        <h4 class="font-bold text-main text-sm">Premium — Inspired by Apple</h4>
+      </div>
+      <div class="grid grid-cols-1 gap-3">`;
+
+  const appleThemes = THEMES.filter(t => t.premium);
+  appleThemes.forEach(t => {
+    const isSelected = currentMode === t.id;
+    const isDark = t.id === 'apple-dark';
+    html += `
+      <div onclick="setAppTheme('${t.id}')" class="relative overflow-hidden rounded-2xl border-2 ${isSelected ? 'border-primary shadow-lg' : 'border-borderline'} cursor-pointer active-scale transition-all hover:shadow-md">
+        <div class="${isDark ? 'bg-black' : 'bg-[#f5f5f7]'} p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl flex items-center justify-center shadow-md" style="background: ${isDark ? 'linear-gradient(135deg, #1c1c1e, #2c2c2e)' : 'linear-gradient(135deg, #ffffff, #f5f5f7)'}; border: 1px solid ${isDark ? '#38383a' : '#d2d2d7'};">
+                <i class="fa-solid fa-apple-whole ${isDark ? 'text-white' : 'text-[#1d1d1f]'} text-lg"></i>
+              </div>
+              <div>
+                <div class="font-bold text-sm ${isDark ? 'text-white' : 'text-[#1d1d1f]'}">${t.name}</div>
+                <div class="text-[10px] ${isDark ? 'text-[#8e8e93]' : 'text-[rgba(0,0,0,0.48)]'}">${t.desc}</div>
+              </div>
+            </div>
+            ${isSelected ? '<i class="fa-solid fa-circle-check text-[#0071e3] text-xl"></i>' : `<div class="w-6 h-6 rounded-full border-2 ${isDark ? 'border-[#38383a]' : 'border-[#d2d2d7]'}"></div>`}
+          </div>
+          <!-- Mini preview -->
+          <div class="${isDark ? 'bg-[#1c1c1e]' : 'bg-white'} rounded-xl p-3 ${isDark ? '' : 'shadow-sm'}">
+            <div class="flex items-center gap-2 mb-2">
+              <div class="w-6 h-6 rounded-full bg-[#0071e3] flex items-center justify-center"><i class="fa-solid fa-house text-white text-[8px]"></i></div>
+              <div class="h-2 w-16 ${isDark ? 'bg-[#3a3a3c]' : 'bg-[#e5e5ea]'} rounded-full"></div>
+              <div class="ml-auto h-2 w-8 bg-[#0071e3] rounded-full opacity-60"></div>
+            </div>
+            <div class="flex gap-2">
+              <div class="flex-1 h-8 ${isDark ? 'bg-[#2c2c2e]' : 'bg-[#f2f2f7]'} rounded-lg"></div>
+              <div class="flex-1 h-8 ${isDark ? 'bg-[#2c2c2e]' : 'bg-[#f2f2f7]'} rounded-lg"></div>
+            </div>
+          </div>
+        </div>
+      </div>`;
+  });
+
+  html += `</div></div>`;
+
+  // Classic themes section
+  html += `
+    <div class="mb-4">
+      <div class="flex items-center gap-2 mb-3">
+        <div class="w-6 h-6 rounded-full bg-surface flex items-center justify-center">
+          <i class="fa-solid fa-swatchbook text-muted text-[10px]"></i>
+        </div>
+        <h4 class="font-bold text-main text-sm">Giao diện cơ bản</h4>
+      </div>
+      <div class="space-y-2">`;
+
+  const classicThemes = THEMES.filter(t => !t.premium);
+  classicThemes.forEach(t => {
+    const isSelected = currentMode === t.id;
+    html += `
+      <div onclick="setAppTheme('${t.id}')" class="flex items-center justify-between p-3.5 rounded-xl border ${isSelected ? 'border-primary bg-primary/10' : 'border-borderline bg-card'} cursor-pointer active-scale transition-all shadow-sm">
+        <div class="flex items-center gap-3">
+          <div class="w-9 h-9 rounded-full flex items-center justify-center text-white shadow-md" style="background-color: ${t.primary};"><i class="fa-solid ${t.icon} text-sm"></i></div>
+          <div>
+            <div class="font-bold text-main text-sm">${t.name}</div>
+            <div class="text-[10px] text-muted">${t.desc}</div>
+          </div>
+        </div>
+        ${isSelected ? '<i class="fa-solid fa-circle-check text-primary text-lg"></i>' : `<div class="w-5 h-5 rounded-full border-2 border-borderline"></div>`}
+      </div>`;
+  });
+
+  html += `</div></div>`;
+
+  // Info box
+  html += `
+    <div class="bg-input border border-borderline rounded-2xl p-4 text-xs text-muted">
+      <div class="flex items-start gap-2">
+        <i class="fa-solid fa-circle-info text-primary mt-0.5"></i>
+        <div>
+          <p class="mb-1">Giao diện <b class="text-main">Apple Dark/Light</b> được thiết kế theo tiêu chuẩn Apple Human Interface Guidelines với font Inter, hiệu ứng glassmorphism và bảng màu chuyên nghiệp.</p>
+          <p>Mỗi thành viên có thể tự chọn giao diện riêng bằng biểu tượng <i class="fa-solid fa-palette"></i> ở thanh trên cùng.</p>
+        </div>
+      </div>
+    </div>`;
+
+  container.innerHTML = html;
 }

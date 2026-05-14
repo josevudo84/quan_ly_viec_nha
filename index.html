@@ -8,6 +8,9 @@
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.2/dist/confetti.browser.min.js"></script>
   <style>
@@ -76,12 +79,155 @@
       --glass-bg: rgba(30, 27, 75, 0.85);
     }
 
+    [data-theme="apple-dark"] {
+      --primary: #0071e3;
+      --bg-dark: #000000;
+      --card-bg: #1c1c1e;
+      --input-bg: #2c2c2e;
+      --surface-bg: #3a3a3c;
+      --text-main: #ffffff;
+      --text-muted: #8e8e93;
+      --success: #34c759;
+      --border: #38383a;
+      --glass-bg: rgba(0, 0, 0, 0.80);
+      --apple-hero-bg: #000000;
+      --apple-section-bg: #1c1c1e;
+      --apple-link: #2997ff;
+      --apple-card-shadow: rgba(0, 0, 0, 0.40) 3px 5px 30px 0px;
+      --apple-nav-blur: saturate(180%) blur(20px);
+    }
+
+    [data-theme="apple-light"] {
+      --primary: #0071e3;
+      --bg-dark: #f5f5f7;
+      --card-bg: #ffffff;
+      --input-bg: #f2f2f7;
+      --surface-bg: #e5e5ea;
+      --text-main: #1d1d1f;
+      --text-muted: rgba(0, 0, 0, 0.48);
+      --success: #34c759;
+      --border: #d2d2d7;
+      --glass-bg: rgba(255, 255, 255, 0.80);
+      --apple-hero-bg: #f5f5f7;
+      --apple-section-bg: #ffffff;
+      --apple-link: #0066cc;
+      --apple-card-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+      --apple-nav-blur: saturate(180%) blur(20px);
+    }
+
     body {
       background-color: var(--bg-dark);
       color: var(--text-main);
       font-family: -apple-system, sans-serif;
       -webkit-tap-highlight-color: transparent;
       transition: background-color 0.3s, color 0.3s;
+    }
+
+    [data-theme="apple-dark"] body,
+    [data-theme="apple-dark"] {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: -0.374px;
+    }
+
+    [data-theme="apple-light"] body,
+    [data-theme="apple-light"] {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      letter-spacing: -0.374px;
+    }
+
+    /* Apple theme specific overrides */
+    [data-theme="apple-dark"] .glass-nav,
+    [data-theme="apple-light"] .glass-nav {
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+    }
+
+    [data-theme="apple-dark"] .glass-nav {
+      background: rgba(0, 0, 0, 0.80);
+      border-top-color: rgba(255, 255, 255, 0.08);
+    }
+
+    [data-theme="apple-light"] .glass-nav {
+      background: rgba(255, 255, 255, 0.80);
+      border-top-color: rgba(0, 0, 0, 0.08);
+    }
+
+    [data-theme="apple-dark"] header,
+    [data-theme="apple-light"] header {
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+    }
+
+    [data-theme="apple-dark"] header {
+      background: rgba(0, 0, 0, 0.80) !important;
+      border-bottom-color: rgba(255, 255, 255, 0.08) !important;
+    }
+
+    [data-theme="apple-light"] header {
+      background: rgba(255, 255, 255, 0.80) !important;
+      border-bottom-color: rgba(0, 0, 0, 0.08) !important;
+    }
+
+    /* Apple card shadow overrides */
+    [data-theme="apple-dark"] .bg-card {
+      border-color: transparent !important;
+      box-shadow: none;
+    }
+
+    [data-theme="apple-light"] .bg-card {
+      border-color: transparent !important;
+      box-shadow: rgba(0, 0, 0, 0.04) 0px 2px 12px 0px;
+    }
+
+    /* Apple pill-shaped buttons */
+    [data-theme="apple-dark"] .apple-pill,
+    [data-theme="apple-light"] .apple-pill {
+      border-radius: 980px !important;
+    }
+
+    /* Apple hero headline styling */
+    [data-theme="apple-dark"] .text-main,
+    [data-theme="apple-light"] .text-main {
+      font-weight: 400;
+    }
+
+    [data-theme="apple-dark"] .font-bold,
+    [data-theme="apple-light"] .font-bold {
+      font-weight: 600;
+    }
+
+    [data-theme="apple-dark"] .font-black,
+    [data-theme="apple-light"] .font-black {
+      font-weight: 700;
+    }
+
+    /* Apple login screen styling */
+    [data-theme="apple-dark"] #login-screen .bg-card,
+    [data-theme="apple-light"] #login-screen .bg-card {
+      border-radius: 20px;
+      border: none;
+      box-shadow: rgba(0, 0, 0, 0.22) 3px 5px 30px 0px;
+    }
+
+    /* Apple input focus ring */
+    [data-theme="apple-dark"] input:focus,
+    [data-theme="apple-dark"] select:focus,
+    [data-theme="apple-light"] input:focus,
+    [data-theme="apple-light"] select:focus {
+      outline: 2px solid #0071e3 !important;
+      outline-offset: 0px;
+      border-color: transparent !important;
+    }
+
+    /* Apple modal styling */
+    [data-theme="apple-dark"] #admin-modal .bg-card,
+    [data-theme="apple-dark"] #theme-modal .bg-card,
+    [data-theme="apple-dark"] #avatar-modal .bg-card,
+    [data-theme="apple-light"] #admin-modal .bg-card,
+    [data-theme="apple-light"] #theme-modal .bg-card,
+    [data-theme="apple-light"] #avatar-modal .bg-card {
+      border: none;
+      box-shadow: rgba(0, 0, 0, 0.30) 0px 20px 60px 0px;
     }
 
     .bg-dark-main {
@@ -496,6 +642,11 @@
           class="flex flex-col items-center justify-center p-4 rounded-2xl bg-card border border-borderline text-muted active-scale gap-2">
           <i class="fa-solid fa-award text-xl text-orange-500"></i>
           <span class="text-[10px] font-bold">Phần thưởng</span>
+        </button>
+        <button id="admin-tab-themes" onclick="loadAdminData('themes')"
+          class="flex flex-col items-center justify-center p-4 rounded-2xl bg-card border border-borderline text-muted active-scale gap-2 hidden">
+          <i class="fa-solid fa-palette text-xl text-cyan-500"></i>
+          <span class="text-[10px] font-bold">Giao diện</span>
         </button>
       </div>
       <div id="admin-list-container" class="space-y-3"></div>
