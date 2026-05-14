@@ -2134,32 +2134,39 @@ function renderThemeAdmin() {
   const appleThemes = THEMES.filter(t => t.premium);
   appleThemes.forEach(t => {
     const isSelected = currentMode === t.id;
-    const isDark = t.id === 'apple-dark';
+    const isDark = t.id.includes('dark') || t.id.includes('midnight');
+    const displayBg = t.bg;
+    const primaryColor = t.primary;
+    const cardBg = isDark ? (t.id === 'apple-dark' ? '#1c1c1e' : '#1f1f21') : '#ffffff';
+    const subCardBg = isDark ? (t.id === 'apple-dark' ? '#2c2c2e' : '#2a2a2c') : '#f2f2f7';
+    const textColor = isDark ? '#ffffff' : '#1d1d1f';
+    const mutedColor = isDark ? '#8e8e93' : 'rgba(0,0,0,0.48)';
+
     html += `
       <div onclick="setAppTheme('${t.id}')" class="relative overflow-hidden rounded-2xl border-2 ${isSelected ? 'border-primary shadow-lg' : 'border-borderline'} cursor-pointer active-scale transition-all hover:shadow-md">
-        <div class="${isDark ? 'bg-black' : 'bg-[#f5f5f7]'} p-5">
+        <div style="background-color: ${displayBg};" class="p-5">
           <div class="flex items-center justify-between mb-3">
             <div class="flex items-center gap-3">
               <div class="w-10 h-10 rounded-xl flex items-center justify-center shadow-md" style="background: ${isDark ? 'linear-gradient(135deg, #1c1c1e, #2c2c2e)' : 'linear-gradient(135deg, #ffffff, #f5f5f7)'}; border: 1px solid ${isDark ? '#38383a' : '#d2d2d7'};">
-                <i class="fa-solid fa-apple-whole ${isDark ? 'text-white' : 'text-[#1d1d1f]'} text-lg"></i>
+                <i class="fa-solid fa-apple-whole" style="color: ${isDark ? '#ffffff' : '#1d1d1f'}; font-size: 1.125rem;"></i>
               </div>
               <div>
-                <div class="font-bold text-sm ${isDark ? 'text-white' : 'text-[#1d1d1f]'}">${t.name}</div>
-                <div class="text-[10px] ${isDark ? 'text-[#8e8e93]' : 'text-[rgba(0,0,0,0.48)]'}">${t.desc}</div>
+                <div class="font-bold text-sm" style="color: ${textColor};">${t.name}</div>
+                <div class="text-[10px]" style="color: ${mutedColor};">${t.desc}</div>
               </div>
             </div>
-            ${isSelected ? '<i class="fa-solid fa-circle-check text-[#0071e3] text-xl"></i>' : `<div class="w-6 h-6 rounded-full border-2 ${isDark ? 'border-[#38383a]' : 'border-[#d2d2d7]'}"></div>`}
+            ${isSelected ? `<i class="fa-solid fa-circle-check text-xl" style="color: ${primaryColor};"></i>` : `<div class="w-6 h-6 rounded-full border-2" style="border-color: ${isDark ? '#38383a' : '#d2d2d7'};"></div>`}
           </div>
           <!-- Mini preview -->
-          <div class="${isDark ? 'bg-[#1c1c1e]' : 'bg-white'} rounded-xl p-3 ${isDark ? '' : 'shadow-sm'}">
+          <div style="background-color: ${cardBg};" class="rounded-xl p-3 ${isDark ? '' : 'shadow-sm'}">
             <div class="flex items-center gap-2 mb-2">
-              <div class="w-6 h-6 rounded-full bg-[#0071e3] flex items-center justify-center"><i class="fa-solid fa-house text-white text-[8px]"></i></div>
-              <div class="h-2 w-16 ${isDark ? 'bg-[#3a3a3c]' : 'bg-[#e5e5ea]'} rounded-full"></div>
-              <div class="ml-auto h-2 w-8 bg-[#0071e3] rounded-full opacity-60"></div>
+              <div class="w-6 h-6 rounded-full flex items-center justify-center" style="background-color: ${primaryColor};"><i class="fa-solid fa-house text-white text-[8px]"></i></div>
+              <div class="h-2 w-16 rounded-full" style="background-color: ${subCardBg};"></div>
+              <div class="ml-auto h-2 w-8 rounded-full opacity-60" style="background-color: ${primaryColor};"></div>
             </div>
             <div class="flex gap-2">
-              <div class="flex-1 h-8 ${isDark ? 'bg-[#2c2c2e]' : 'bg-[#f2f2f7]'} rounded-lg"></div>
-              <div class="flex-1 h-8 ${isDark ? 'bg-[#2c2c2e]' : 'bg-[#f2f2f7]'} rounded-lg"></div>
+              <div class="flex-1 h-8 rounded-lg" style="background-color: ${subCardBg};"></div>
+              <div class="flex-1 h-8 rounded-lg" style="background-color: ${subCardBg};"></div>
             </div>
           </div>
         </div>
@@ -2203,7 +2210,7 @@ function renderThemeAdmin() {
       <div class="flex items-start gap-2">
         <i class="fa-solid fa-circle-info text-primary mt-0.5"></i>
         <div>
-          <p class="mb-1">Giao diện <b class="text-main">Apple Dark/Light</b> được thiết kế theo tiêu chuẩn Apple Human Interface Guidelines với font Inter, hiệu ứng glassmorphism và bảng màu chuyên nghiệp.</p>
+          <p class="mb-1">Giao diện <b class="text-main">Apple Midnight/Crystal</b> là các phiên bản Pro cao cấp nhất từ Stitch, sử dụng hệ màu Obsidian và Lumina tối tân.</p>
           <p>Mỗi thành viên có thể tự chọn giao diện riêng bằng biểu tượng <i class="fa-solid fa-palette"></i> ở thanh trên cùng.</p>
         </div>
       </div>
