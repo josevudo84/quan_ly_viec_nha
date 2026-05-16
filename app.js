@@ -2048,6 +2048,8 @@ window.onload = () => { setTimeout(checkLoginStatus, 500); };
 const THEMES = [
   { id: 'dark', name: 'Đêm sâu', icon: 'fa-moon', bg: '#1A1D24', primary: '#3B82F6', desc: 'Giao diện tối mặc định' },
   { id: 'light', name: 'Sáng sủa', icon: 'fa-sun', bg: '#FFFFFF', primary: '#8B5CF6', desc: 'Giao diện sáng cổ điển' },
+  { id: 'apple-midnight', name: 'Apple Midnight', icon: 'fa-apple-whole', bg: '#131315', primary: '#abc7ff', desc: 'Apple Pro - Midnight Blue', premium: true },
+  { id: 'apple-crystal', name: 'Apple Crystal', icon: 'fa-apple-whole', bg: '#f9f9fb', primary: '#0059b5', desc: 'Apple Pro - Pure Crystal', premium: true },
   { id: 'apple-dark', name: 'Apple Dark', icon: 'fa-apple-whole', bg: '#000000', primary: '#0071e3', desc: 'Phong cách Apple cao cấp - Tối', premium: true },
   { id: 'apple-light', name: 'Apple Light', icon: 'fa-apple-whole', bg: '#f5f5f7', primary: '#0071e3', desc: 'Phong cách Apple cao cấp - Sáng', premium: true },
   { id: 'sakura', name: 'Hoa anh đào', icon: 'fa-spa', bg: '#FFE4E6', primary: '#F43F5E', desc: 'Hồng dịu dàng' },
