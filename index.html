@@ -355,6 +355,72 @@
       animation: spin 1s linear infinite;
     }
 
+    /* PREMIUM UI COMPONENTS */
+    .premium-card {
+      background: var(--glass-bg);
+      backdrop-filter: var(--apple-nav-blur);
+      -webkit-backdrop-filter: var(--apple-nav-blur);
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      box-shadow: var(--apple-card-shadow);
+      padding: 20px;
+      margin-bottom: 16px;
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .premium-card:hover {
+      transform: translateY(-4px);
+      box-shadow: rgba(0, 0, 0, 0.15) 0px 20px 40px -10px;
+    }
+
+    .premium-progress-ring {
+      position: relative;
+      width: 120px;
+      height: 120px;
+    }
+
+    .premium-progress-ring svg {
+      width: 120px;
+      height: 120px;
+      transform: rotate(-90deg);
+    }
+
+    .premium-progress-ring circle {
+      fill: none;
+      stroke-width: 8;
+      stroke-linecap: round;
+    }
+
+    .premium-progress-ring .track {
+      stroke: var(--surface-bg);
+      opacity: 0.3;
+    }
+
+    .premium-progress-ring .progress {
+      stroke: var(--primary);
+      stroke-dasharray: 314;
+      stroke-dashoffset: 314;
+      transition: stroke-dashoffset 1s ease-out;
+      filter: drop-shadow(0 0 4px var(--primary));
+    }
+
+    .premium-progress-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      text-align: center;
+    }
+
+    .premium-badge {
+      font-size: 10px;
+      font-weight: 900;
+      padding: 2px 8px;
+      border-radius: 99px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
     @keyframes spin {
       0% {
         transform: rotate(0deg);
@@ -495,6 +561,7 @@
   <main class="p-5 max-w-lg mx-auto">
     <!-- VIEW: HOME -->
     <section id="view-home" class="view-section">
+      <div id="premium-summary-container" class="hidden mb-6"></div>
       <div id="reminder-box"
         class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 flex items-start gap-3 hidden">
         <i class="fa-solid fa-bell text-amber-500 mt-0.5 animate-bounce"></i>

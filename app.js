@@ -377,6 +377,37 @@ async function loadHomeData() {
   }
 
   renderRewards(rewardsData || []);
+
+  // Premium Summary Rendering
+  const premiumContainer = document.getElementById('premium-summary-container');
+  if (isPremiumTheme()) {
+    const totalTasks = dailyTasks.length + weeklyTasks.length + adhocTasks.length;
+    const completedTasks = [...dailyTasks, ...weeklyTasks, ...adhocTasks].filter(t => t.status === 'Approved').length;
+    const percent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 314) : 0;
+    const displayPercent = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+    premiumContainer.innerHTML = `
+      <div class="premium-card flex items-center justify-between gap-6">
+        <div class="flex-1">
+          <div class="premium-badge bg-primary/20 text-primary mb-2 inline-block">Daily Progress</div>
+          <h3 class="text-xl font-black text-main leading-tight mb-1">Tình hình hôm nay</h3>
+          <p class="text-xs text-muted">Bạn đã hoàn thành ${completedTasks}/${totalTasks} công việc. ${displayPercent === 100 ? 'Tuyệt vời!' : 'Cố lên nhé!'}</p>
+        </div>
+        <div class="premium-progress-ring">
+          <svg viewBox="0 0 100 100">
+            <circle class="track" cx="50" cy="50" r="46"></circle>
+            <circle class="progress" cx="50" cy="50" r="46" style="stroke-dashoffset: ${314 - percent};"></circle>
+          </svg>
+          <div class="premium-progress-text">
+            <div class="text-2xl font-black text-main">${displayPercent}%</div>
+          </div>
+        </div>
+      </div>
+    `;
+    premiumContainer.classList.remove('hidden');
+  } else {
+    premiumContainer.classList.add('hidden');
+  }
 }
 
 function renderTaskGroup(tasks, containerId, emptyMsg) {
@@ -387,6 +418,9 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
   tasks.forEach(t => {
     if (t.status === 'Not Done' && t.penalty > 0) hasPending = true;
     let rightColHtml = '';
+    const isPremium = isPremiumTheme();
+    const cardClass = isPremium ? 'premium-card' : 'bg-card border border-borderline rounded-2xl p-3.5 mb-3 shadow-sm relative overflow-hidden transition-all hover:border-primary/50 flex items-center justify-between';
+
     if (t.status === 'Not Done') {
       rightColHtml = `<button onclick="submitTask('${t.id}', '${t.periodId}')" class="w-12 h-12 rounded-[16px] bg-primary/10 text-primary flex items-center justify-center text-xl active-scale hover:bg-primary hover:text-white hover:rotate-12 transition-all shadow-sm ml-2 cursor-pointer border border-primary/20"><i class="fa-solid fa-hand-pointer"></i></button>`;
     } else if (t.status === 'Pending Approval') {
@@ -402,17 +436,17 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
     }
 
     container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-3.5 mb-3 shadow-sm relative overflow-hidden transition-all hover:border-primary/50 flex items-center justify-between">
-            ${t.status === 'Approved' ? '<div class="absolute inset-0 bg-success/5 pointer-events-none"></div>' : ''}
+        <div class="${cardClass} ${!isPremium ? '' : 'flex items-center justify-between'}">
+            ${t.status === 'Approved' && !isPremium ? '<div class="absolute inset-0 bg-success/5 pointer-events-none"></div>' : ''}
             <div class="flex items-center gap-3.5 relative z-10 flex-1 min-w-0">
-                <div class="w-14 h-14 shrink-0 rounded-[16px] bg-surface flex items-center justify-center text-primary text-2xl shadow-inner border border-white/5">
+                <div class="w-14 h-14 shrink-0 ${isPremium ? 'rounded-2xl bg-primary/10' : 'rounded-[16px] bg-surface shadow-inner border border-white/5'} flex items-center justify-center text-primary text-2xl">
                     <i class="${t.icon}"></i>
                 </div>
                 <div class="flex flex-col justify-center flex-1 min-w-0">
                     <h3 class="font-bold text-main text-sm leading-snug line-clamp-2 mb-1.5">${t.name}</h3>
                     <div class="flex items-center gap-2">
-                        <span class="flex items-center gap-1 text-[11px] font-black text-success bg-success/10 px-1.5 py-0.5 rounded"><i class="fa-solid fa-coins text-yellow-500"></i> +${t.points}</span>
-                        ${t.penalty > 0 ? `<span class="flex items-center gap-1 text-[11px] font-black text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded"><i class="fa-solid fa-arrow-trend-down"></i> -${t.penalty}</span>` : ''}
+                        <span class="flex items-center gap-1 text-[11px] font-black text-success ${isPremium ? 'bg-success/5' : 'bg-success/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-coins text-yellow-500"></i> +${t.points}</span>
+                        ${t.penalty > 0 ? `<span class="flex items-center gap-1 text-[11px] font-black text-red-500 ${isPremium ? 'bg-red-500/5' : 'bg-red-500/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-arrow-trend-down"></i> -${t.penalty}</span>` : ''}
                     </div>
                 </div>
             </div>
@@ -2079,6 +2113,11 @@ function openThemeModal() {
 }
 
 function closeThemeModal() { document.getElementById('theme-modal').classList.add('hidden'); document.getElementById('theme-modal').classList.remove('flex'); }
+
+function isPremiumTheme() {
+  const currentMode = localStorage.getItem('housework_theme') || 'dark';
+  return currentMode.startsWith('apple-');
+}
 
 function setAppTheme(themeId) {
   if (themeId === 'dark') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', themeId);
