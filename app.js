@@ -6,6 +6,7 @@ let currentUser = null;
 let currentAdminType = 'approvals';
 let currentReportTimeframe = 'this_week';
 let currentReportTab = 'tasks';
+let currentApprovalFilter = 'Pending Approval';
 
 const ICONS = ['fa-solid fa-clipboard-list', 'fa-solid fa-broom', 'fa-solid fa-trash', 'fa-solid fa-shirt', 'fa-solid fa-utensils', 'fa-solid fa-droplet', 'fa-solid fa-leaf', 'fa-solid fa-cart-shopping', 'fa-solid fa-book', 'fa-solid fa-sink', 'fa-solid fa-bath', 'fa-solid fa-dog', 'fa-solid fa-cat', 'fa-solid fa-box', 'fa-solid fa-gamepad', 'fa-solid fa-ticket', 'fa-solid fa-tv', 'fa-solid fa-mug-hot', 'fa-solid fa-star', 'fa-solid fa-gift', 'fa-solid fa-medal', 'fa-solid fa-motorcycle', 'fa-solid fa-car', 'fa-solid fa-money-bill', 'fa-solid fa-fire', 'fa-solid fa-rocket', 'fa-solid fa-bolt'];
 
@@ -336,6 +337,49 @@ async function loadHomeData() {
         }
       }
     });
+
+    // Add past pending tasks to the homepage lists so they remain until actioned
+    if (logsData) {
+      logsData.forEach(l => {
+        if (l.status === 'Pending Approval') {
+          const t = tasksData.find(x => x.id === l.task_id);
+          if (t) {
+            const pType = t.penalty_type || 'all';
+            const isMyPending = (pType === 'individual') ? (l.username === currentUser.username) : true;
+            if (isMyPending) {
+              let isPast = false;
+              if (t.frequency === 'Daily' || t.frequency === 'Weekly' || t.frequency === 'Adhoc') {
+                isPast = (l.period_id !== todayStr);
+              } else if (t.frequency === 'Monthly') {
+                isPast = (l.period_id !== weekStr);
+              }
+              if (isPast) {
+                const completedByName = l.users?.name || l.username;
+                const formattedTask = {
+                  id: t.id,
+                  name: t.task_name,
+                  points: t.points,
+                  penalty: t.penalty,
+                  penaltyType: pType,
+                  status: 'Pending Approval',
+                  completedByName,
+                  periodId: l.period_id,
+                  frequency: t.frequency,
+                  icon: t.icon || 'fa-solid fa-clipboard-list'
+                };
+                if (!t.penalty || Number(t.penalty) <= 0) {
+                  adhocTasks.push(formattedTask);
+                } else if (t.frequency === 'Daily') {
+                  dailyTasks.push(formattedTask);
+                } else {
+                  weeklyTasks.push(formattedTask);
+                }
+              }
+            }
+          }
+        }
+      });
+    }
   }
 
   let rewardsQuery = supabaseClient.from('rewards').select('*');
@@ -410,6 +454,24 @@ async function loadHomeData() {
   }
 }
 
+function formatPeriodId(periodId) {
+  if (!periodId) return '';
+  if (periodId.includes('-W')) {
+    const parts = periodId.split('-');
+    if (parts.length === 3) {
+      const year = parts[0];
+      const month = parts[1];
+      const week = parts[2].replace('W', 'Tuần ');
+      return `${week} (${month}/${year})`;
+    }
+  }
+  if (periodId.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    const parts = periodId.split('-');
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+  return periodId;
+}
+
 function renderTaskGroup(tasks, containerId, emptyMsg) {
   const container = document.getElementById(containerId); container.innerHTML = '';
   if (tasks.length === 0) { container.innerHTML = `<div class="text-center text-muted py-6 text-xs bg-card border border-borderline rounded-2xl border-dashed">${emptyMsg}</div>`; return false; }
@@ -435,6 +497,16 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
             </div>`;
     }
 
+    const today = new Date();
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const weekOfMonth = Math.ceil(today.getDate() / 7);
+    const weekStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-W${weekOfMonth}`;
+    let periodLabel = '';
+    const isPastPeriod = t.periodId && (t.periodId !== todayStr && t.periodId !== weekStr);
+    if (isPastPeriod) {
+      periodLabel = `<span class="text-[9px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 ml-1.5 inline-block shrink-0">Lịch cũ: ${formatPeriodId(t.periodId)}</span>`;
+    }
+
     container.innerHTML += `
         <div class="${cardClass} ${!isPremium ? '' : 'flex items-center justify-between'}">
             ${t.status === 'Approved' && !isPremium ? '<div class="absolute inset-0 bg-success/5 pointer-events-none"></div>' : ''}
@@ -443,7 +515,7 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
                     <i class="${t.icon}"></i>
                 </div>
                 <div class="flex flex-col justify-center flex-1 min-w-0">
-                    <h3 class="font-bold text-main text-sm leading-snug line-clamp-2 mb-1.5">${t.name}</h3>
+                    <h3 class="font-bold text-main text-sm leading-snug line-clamp-2 mb-1.5">${t.name}${periodLabel}</h3>
                     <div class="flex items-center gap-2">
                         <span class="flex items-center gap-1 text-[11px] font-black text-success ${isPremium ? 'bg-success/5' : 'bg-success/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-coins text-yellow-500"></i> +${t.points}</span>
                         ${t.penalty > 0 ? `<span class="flex items-center gap-1 text-[11px] font-black text-red-500 ${isPremium ? 'bg-red-500/5' : 'bg-red-500/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-arrow-trend-down"></i> -${t.penalty}</span>` : ''}
@@ -580,10 +652,10 @@ async function loadHistoryData() {
     appStartDate.setHours(0, 0, 0, 0);
   }
 
-  const { data: logs } = await supabaseClient.from('task_logs').select('*').eq('status', 'Approved');
+  const { data: logs } = await supabaseClient.from('task_logs').select('*').neq('status', 'Rejected');
 
   const logMap = {};
-  if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id + '_' + l.username] = true);
+  if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id + '_' + l.username] = l.status);
 
   let historyItems = [];
 
@@ -938,7 +1010,7 @@ async function loadReportData(startDate, endDate) {
   if (appStartDate && effectiveStartDate < appStartDate) effectiveStartDate = new Date(appStartDate);
 
   const logMap = {};
-  if (logs) logs.forEach(l => { if (l.status === 'Approved') logMap[l.task_id + '_' + l.period_id + '_' + l.username] = true; });
+  if (logs) logs.forEach(l => { if (l.status === 'Approved' || l.status === 'Pending Approval') logMap[l.task_id + '_' + l.period_id + '_' + l.username] = l.status; });
 
   const todayStrGlobal = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}-${String(new Date().getDate()).padStart(2, '0')}`;
 
@@ -1004,11 +1076,13 @@ function renderTaskReport() {
 
   const logMap = {};
   logs.forEach(l => {
-    if (l.status === 'Approved') {
+    if (l.status === 'Approved' || l.status === 'Pending Approval') {
         const key = l.task_id + '_' + l.period_id + '_' + l.username;
         logMap[key] = l;
         // Also keep a general key for 'all' logic
-        if (!logMap[l.task_id + '_' + l.period_id]) logMap[l.task_id + '_' + l.period_id] = l;
+        if (!logMap[l.task_id + '_' + l.period_id] || logMap[l.task_id + '_' + l.period_id].status === 'Pending Approval') {
+            logMap[l.task_id + '_' + l.period_id] = l;
+        }
     }
   });
 
@@ -1052,7 +1126,7 @@ function renderTaskReport() {
         // Handle completions
         usernamesToCheck.forEach(uName => {
            const log = logMap[t.id + '_' + pId + '_' + uName];
-           if (log) {
+           if (log && log.status === 'Approved') {
               completedTotal++;
               completedMap[t.id].times++;
               completedMap[t.id].pts += t.points;
@@ -1064,7 +1138,10 @@ function renderTaskReport() {
            if (filterUser === 'all') {
               if (pType === 'all') {
                  // Shared task, missed by family if no one did it
-                 const anyoneDidIt = (currentReportData.users || []).some(u => logMap[t.id + '_' + pId + '_' + u.username]);
+                 const anyoneDidIt = (currentReportData.users || []).some(u => {
+                    const log = logMap[t.id + '_' + pId + '_' + u.username];
+                    return log && (log.status === 'Approved' || log.status === 'Pending Approval');
+                 });
                  if (!anyoneDidIt) {
                     // Check if AT LEAST ONE user is liable to be penalized
                     const someoneLiable = (currentReportData.users || []).some(u => {
@@ -1080,7 +1157,9 @@ function renderTaskReport() {
               } else {
                  // Individual task, count each user who missed it and is liable
                  (currentReportData.users || []).forEach(u => {
-                    if (!logMap[t.id + '_' + pId + '_' + u.username]) {
+                    const log = logMap[t.id + '_' + pId + '_' + u.username];
+                    const isDoneOrPending = log && (log.status === 'Approved' || log.status === 'Pending Approval');
+                    if (!isDoneOrPending) {
                        let shouldCount = true;
                        if (t.calc_admin === false && (u.role === 'Admin' || u.role === 'Moderator' || u.role === 'Super Admin')) shouldCount = false;
                        if (shouldCount) {
@@ -1094,11 +1173,15 @@ function renderTaskReport() {
            } else {
               // Specific user view
               const uName = filterUser;
-              const hasLog = logMap[t.id + '_' + pId + '_' + uName];
+              const log = logMap[t.id + '_' + pId + '_' + uName];
+              const hasLog = log && (log.status === 'Approved' || log.status === 'Pending Approval');
               let isMissed = false;
 
               if (pType === 'all') {
-                 const anyoneDidIt = (currentReportData.users || []).some(u => logMap[t.id + '_' + pId + '_' + u.username]);
+                 const anyoneDidIt = (currentReportData.users || []).some(u => {
+                    const l2 = logMap[t.id + '_' + pId + '_' + u.username];
+                    return l2 && (l2.status === 'Approved' || l2.status === 'Pending Approval');
+                 });
                  if (!anyoneDidIt) isMissed = true;
               } else {
                  if (!hasLog) isMissed = true;
@@ -1222,6 +1305,7 @@ async function loadAdminData(type) {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none';
     renderThemeAdmin();
   } else if (type === 'approvals') {
+    currentApprovalFilter = 'Pending Approval';
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; await loadApprovals();
   } else if (type === 'reward_approvals') {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; await loadRewardApprovals();
@@ -1360,9 +1444,14 @@ async function updateRewardStatus(transactionId, newStatus) {
   }
 }
 
+function setApprovalFilter(status) {
+  currentApprovalFilter = status;
+  loadApprovals();
+}
+
 async function loadApprovals() {
   showLoading(true);
-  let approvalQuery = supabaseClient.from('task_logs').select('*, tasks!inner(*), users(*)').eq('status', 'Pending Approval');
+  let approvalQuery = supabaseClient.from('task_logs').select('*, tasks!inner(*), users(*)').eq('status', currentApprovalFilter);
   if (getFamilyId()) approvalQuery = approvalQuery.eq('tasks.family_id', getFamilyId());
   const { data, error } = await approvalQuery;
   showLoading(false);
@@ -1377,25 +1466,54 @@ async function loadApprovals() {
   }
   const container = document.getElementById('admin-list-container'); container.innerHTML = '';
 
+  // Render toggle tabs
+  const toggleHtml = `
+    <div class="flex border-b border-borderline mb-4 w-full">
+      <button onclick="setApprovalFilter('Pending Approval')" class="flex-1 py-2.5 text-xs font-bold text-center transition-colors ${currentApprovalFilter === 'Pending Approval' ? 'text-primary border-b-2 border-primary font-black' : 'text-muted border-b-2 border-transparent'}">
+        <i class="fa-solid fa-clock mr-1"></i>Chờ duyệt
+      </button>
+      <button onclick="setApprovalFilter('Rejected')" class="flex-1 py-2.5 text-xs font-bold text-center transition-colors ${currentApprovalFilter === 'Rejected' ? 'text-primary border-b-2 border-primary font-black' : 'text-muted border-b-2 border-transparent'}">
+        <i class="fa-solid fa-circle-xmark mr-1"></i>Đã từ chối
+      </button>
+    </div>
+  `;
+  container.innerHTML = toggleHtml;
+
   if (error) return showToast(error.message, 'error');
-  if (!data || data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Quá mượt! Không có việc chờ duyệt.</div>';
+  if (!data || data.length === 0) {
+    container.innerHTML += `<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl w-full">${currentApprovalFilter === 'Pending Approval' ? 'Quá mượt! Không có việc chờ duyệt.' : 'Không có việc nào bị từ chối.'}</div>`;
+    return;
+  }
 
   data.forEach(item => {
+    const taskDateFormatted = formatPeriodId(item.period_id);
+    const dateObj = new Date(item.created_at);
+    const timeStr = String(dateObj.getHours()).padStart(2, '0') + ':' + String(dateObj.getMinutes()).padStart(2, '0');
+    const dateStr = dateObj.toLocaleDateString('vi-VN');
+    const submitLabel = `${timeStr} ${dateStr}`;
+
+    const isRejected = item.status === 'Rejected';
+    const buttonsHtml = isRejected ?
+      `<button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}', ${item.tasks?.calc_admin ?? true})" class="w-full py-2.5 rounded-xl bg-success text-white text-xs font-bold active-scale shadow-lg shadow-success/30">Duyệt lại & Cộng Điểm</button>` :
+      `<button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
+       <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}', ${item.tasks?.calc_admin ?? true})" class="flex-1 py-2 rounded-xl bg-success text-white text-xs font-bold active-scale shadow-lg shadow-success/30">Duyệt & Cộng Điểm</button>`;
+
     container.innerHTML += `
-        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-primary/50 transition-all mb-3">
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-primary/50 transition-all mb-3 w-full">
             <div class="flex justify-between items-start mb-2">
                 <div class="flex items-start gap-3">
                     <div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary shadow-inner text-base"><i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'}"></i></div>
                     <div>
-                        <h4 class="font-bold text-main text-sm max-w-[150px] leading-tight mb-1">${item.tasks?.task_name}</h4>
-                        <div class="text-xs text-muted">Bởi: <span class="text-main font-bold">${item.users?.name || item.username}</span></div>
+                        <h4 class="font-bold text-main text-sm max-w-[180px] leading-tight mb-1">${item.tasks?.task_name}</h4>
+                        <div class="text-xs text-muted mb-1">Bởi: <span class="text-main font-bold">${item.users?.name || item.username}</span></div>
+                        <div class="text-[10px] text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 inline-block font-bold mb-1">Lịch việc: ${taskDateFormatted}</div>
+                        <div class="text-[9px] text-muted"><i class="fa-regular fa-clock mr-1"></i>Nộp lúc: ${submitLabel}</div>
                     </div>
                 </div>
                 <div class="text-success font-black text-sm bg-success/10 px-2 py-1 rounded border border-success/20">+${item.tasks?.points}</div>
             </div>
             <div class="flex gap-2 mt-4">
-                <button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
-                <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}', ${item.tasks?.calc_admin ?? true})" class="flex-1 py-2 rounded-xl bg-success text-white text-xs font-bold active-scale shadow-lg shadow-success/30">Duyệt & Cộng Điểm</button>
+                ${buttonsHtml}
             </div>
         </div>`;
   });
