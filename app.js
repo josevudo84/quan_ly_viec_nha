@@ -958,7 +958,10 @@ async function loadReportData(startDate, endDate) {
   // Always fetch all data over the period to calculate the true leaderboard for everyone.
   let transQuery = supabaseClient.from('transactions').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
   if (familyUsernames.length > 0) transQuery = transQuery.in('username', familyUsernames);
-  let logsQuery = supabaseClient.from('task_logs').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
+  // Query task_logs WITHOUT created_at filter — the report iterates day-by-day
+  // and checks period_id, so we need ALL logs (including re-approved ones whose
+  // created_at may be outside the report window but period_id is inside it).
+  let logsQuery = supabaseClient.from('task_logs').select('*');
   if (familyUsernames.length > 0) logsQuery = logsQuery.in('username', familyUsernames);
 
   const { data: trans } = await transQuery;
@@ -1521,7 +1524,7 @@ async function loadApprovals() {
 
 async function approveTask(logId, isApproved, username, points, taskName, calcAdmin = true) {
   showLoading(true); const status = isApproved ? 'Approved' : 'Rejected';
-  await supabaseClient.from('task_logs').update({ status: status, approved_by: currentUser.username }).eq('id', logId);
+  await supabaseClient.from('task_logs').update({ status: status, approved_by: currentUser.username, approved_at: new Date().toISOString() }).eq('id', logId);
   if (isApproved) {
     const { data: uData } = await supabaseClient.from('users').select('points, role').eq('username', username).single();
     if (uData) {
