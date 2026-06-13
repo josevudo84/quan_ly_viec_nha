@@ -90,6 +90,14 @@ Làm việc nhà → Admin duyệt → Nhận điểm thưởng → Tích điể
 
 > ⚠️ Mỗi công việc chỉ có **một người** được nhận trong mỗi chu kỳ. Nếu ai đó đã nhận trước, bạn sẽ thấy thông báo "Việc này đã có người xí rồi!"
 
+### Công việc Điều kiện ⚡
+
+Những công việc có gắn huy hiệu `⚡ĐK` là công việc **bắt buộc phải làm** để mở khóa điểm thưởng cho ngày hôm đó:
+- Khi chưa làm xong **TẤT CẢ** các việc Điều kiện: Bạn vẫn có thể làm việc khác và được duyệt, nhưng điểm thưởng sẽ bị **"tạm giữ"**.
+- Khi hoàn thành việc Điều kiện cuối cùng: Toàn bộ điểm tạm giữ sẽ được **cộng ngay lập tức**.
+- Trạng thái điều kiện được hiển thị qua banner (màu xanh/vàng) ở ngay đầu trang chủ.
+- **Lưu ý:** Việc bị phạt (trừ điểm) vẫn áp dụng bình thường bất kể trạng thái điều kiện.
+
 ### Chế độ Nghỉ lễ 🏖️
 
 Vào các ngày nghỉ lễ (do Admin thiết lập), hệ thống sẽ hiển thị **banner thông báo đặc biệt**. Trong ngày này:
@@ -202,6 +210,9 @@ Quản lý danh sách công việc:
 - ✅ **Bật**: Nếu Admin không hoàn thành việc này, Admin cũng bị trừ điểm
 - ❌ **Tắt** (mặc định): Admin được miễn trừ điểm phạt cho việc này
 
+#### Đánh dấu Điều kiện ⚡:
+- Nếu bật **"✅ Là Điều Kiện bắt buộc"**: Công việc này sẽ trở thành điều kiện tiên quyết. Các thành viên phải làm xong việc này mới được nhận điểm từ các công việc khác trong ngày.
+
 ### Tab Nghỉ lễ 🏖️
 
 Thiết lập ngày nghỉ lễ:
@@ -305,7 +316,10 @@ Tab Quản trị chỉ hiển thị cho vai trò **Moderator**, **Admin**, và *
 ### 5. Tôi quên mật khẩu thì làm sao?
 Liên hệ **Admin** hoặc **Super Admin** của gia đình bạn. Họ có thể vào tab **Thành viên** → Sửa tài khoản của bạn → Đặt lại mật khẩu.
 
-### 6. Nhiều gia đình có nhìn thấy dữ liệu của nhau không?
+### 6. Tại sao công việc đã duyệt mà tôi chưa được cộng điểm?
+Nếu hôm nay có **Công việc Điều kiện (⚡ĐK)**, bạn phải đợi hoàn thành xong tất cả các công việc Điều kiện đó thì điểm của các công việc khác mới được cộng vào tài khoản.
+
+### 7. Nhiều gia đình có nhìn thấy dữ liệu của nhau không?
 **Không**. Dữ liệu (công việc, thành viên, phần thưởng, lịch sử) được phân tách hoàn toàn theo từng gia đình. Chỉ **Super Admin** mới có thể xem và quản lý tất cả các gia đình.
 
 ---
