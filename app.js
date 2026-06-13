@@ -287,6 +287,68 @@ function unpackTasks(tasks) {
   });
 }
 
+// === CONDITION TASK HELPERS ===
+function getConditionStatusForPeriod(periodId, allTasks, allLogs) {
+  const isWeekPeriod = periodId && periodId.includes('-W');
+  let dueConditionTasks = [];
+
+  if (isWeekPeriod) {
+    const weekNum = parseInt(periodId.split('-W')[1]);
+    dueConditionTasks = (allTasks || []).filter(t => t.is_condition && t.frequency === 'Monthly' && t.schedule == weekNum);
+  } else {
+    const date = new Date(periodId + 'T00:00:00');
+    const dayOfWeek = date.getDay();
+    const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
+    dueConditionTasks = (allTasks || []).filter(t => {
+      if (!t.is_condition) return false;
+      if (t.frequency === 'Daily') return true;
+      if (t.frequency === 'Weekly' && t.schedule == dayOfWeekAdjusted) return true;
+      if (t.frequency === 'Adhoc' && (!t.schedule || t.schedule === periodId)) return true;
+      return false;
+    });
+  }
+
+  if (dueConditionTasks.length === 0) return { hasConditions: false, allMet: true, conditionTasks: [] };
+
+  const allMet = dueConditionTasks.every(ct => {
+    return (allLogs || []).some(l => l.task_id === ct.id && l.period_id === periodId && l.status === 'Approved');
+  });
+
+  return { hasConditions: true, allMet, conditionTasks: dueConditionTasks };
+}
+
+async function awardDeferredPoints(periodId) {
+  const { data: deferredLogs } = await supabaseClient.from('task_logs')
+    .select('*, tasks!inner(points, task_name, calc_admin, family_id)')
+    .eq('period_id', periodId)
+    .eq('status', 'Approved')
+    .eq('points_awarded', false);
+
+  if (!deferredLogs || deferredLogs.length === 0) return;
+
+  for (const log of deferredLogs) {
+    const task = log.tasks;
+    if (!task || task.points <= 0) {
+      await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', log.id);
+      continue;
+    }
+    const { data: uData } = await supabaseClient.from('users')
+      .select('points, role').eq('username', log.username).single();
+    if (!uData) continue;
+
+    let finalPoints = task.points;
+    if (task.calc_admin === false && (uData.role === 'Admin' || uData.role === 'Moderator' || uData.role === 'Super Admin')) {
+      finalPoints = 0;
+    }
+    if (finalPoints > 0) {
+      await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', log.username);
+      await supabaseClient.from('transactions').insert([{ username: log.username, type: 'Earn', amount: finalPoints, description: `Được duyệt: ${task.task_name}` }]);
+    }
+    await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', log.id);
+  }
+}
+// === END CONDITION TASK HELPERS ===
+
 async function loadHomeData() {
   showLoading(true); await refreshUserPoints();
   let tasksQuery = supabaseClient.from('tasks').select('*');
@@ -327,7 +389,7 @@ async function loadHomeData() {
             if (log) { logStatus = log.status; completedByName = log.users?.name || log.username; }
           }
         }
-        const formattedTask = { id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, penaltyType: pType, status: logStatus, completedByName, periodId, frequency: t.frequency, icon: t.icon || 'fa-solid fa-clipboard-list' };
+        const formattedTask = { id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, penaltyType: pType, status: logStatus, completedByName, periodId, frequency: t.frequency, icon: t.icon || 'fa-solid fa-clipboard-list', isCondition: !!t.is_condition };
         if (!t.penalty || Number(t.penalty) <= 0) {
           adhocTasks.push(formattedTask);
         } else if (t.frequency === 'Daily') {
@@ -365,7 +427,8 @@ async function loadHomeData() {
                   completedByName,
                   periodId: l.period_id,
                   frequency: t.frequency,
-                  icon: t.icon || 'fa-solid fa-clipboard-list'
+                  icon: t.icon || 'fa-solid fa-clipboard-list',
+                  isCondition: !!t.is_condition
                 };
                 if (!t.penalty || Number(t.penalty) <= 0) {
                   adhocTasks.push(formattedTask);
@@ -418,6 +481,25 @@ async function loadHomeData() {
   } else {
     if (hasPending) document.getElementById('reminder-box').classList.remove('hidden');
     else document.getElementById('reminder-box').classList.add('hidden');
+  }
+
+  // Condition status banner
+  const allDueTasks = [...dailyTasks, ...weeklyTasks, ...adhocTasks];
+  const conditionTasksToday = allDueTasks.filter(t => t.isCondition);
+  if (conditionTasksToday.length > 0) {
+    const condDone = conditionTasksToday.filter(t => t.status === 'Approved').length;
+    const condTotal = conditionTasksToday.length;
+    const allCondMet = condDone === condTotal;
+    const condBannerHtml = allCondMet ? `
+      <div class="bg-gradient-to-r from-emerald-500/10 to-green-500/10 border border-emerald-500/30 rounded-2xl p-4 mb-4 flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-emerald-500/20 flex items-center justify-center text-emerald-500 text-lg shrink-0"><i class="fa-solid fa-key"></i></div>
+        <div><div class="font-bold text-emerald-500 text-sm mb-0.5">Đã đủ Điều kiện ✓</div><p class="text-[10px] text-muted">Tất cả ${condTotal} điều kiện đã hoàn thành. Điểm thưởng được tính!</p></div>
+      </div>` : `
+      <div class="bg-gradient-to-r from-amber-500/10 to-orange-500/10 border border-amber-500/30 rounded-2xl p-4 mb-4 flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-500 text-lg shrink-0"><i class="fa-solid fa-key"></i></div>
+        <div><div class="font-bold text-amber-500 text-sm mb-0.5">Điều kiện: ${condDone}/${condTotal}</div><p class="text-[10px] text-muted">Hoàn thành tất cả việc Điều kiện (⚡) mới được tính thưởng.</p></div>
+      </div>`;
+    document.getElementById('home-daily-container').innerHTML = condBannerHtml + document.getElementById('home-daily-container').innerHTML;
   }
 
   renderRewards(rewardsData || []);
@@ -519,6 +601,7 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
                     <div class="flex items-center gap-2">
                         <span class="flex items-center gap-1 text-[11px] font-black text-success ${isPremium ? 'bg-success/5' : 'bg-success/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-coins text-yellow-500"></i> +${t.points}</span>
                         ${t.penalty > 0 ? `<span class="flex items-center gap-1 text-[11px] font-black text-red-500 ${isPremium ? 'bg-red-500/5' : 'bg-red-500/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-arrow-trend-down"></i> -${t.penalty}</span>` : ''}
+                        ${t.isCondition ? `<span class="flex items-center gap-1 text-[11px] font-black text-cyan-500 ${isPremium ? 'bg-cyan-500/5' : 'bg-cyan-500/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-key"></i> ĐK</span>` : ''}
                     </div>
                 </div>
             </div>
@@ -1507,7 +1590,7 @@ async function loadApprovals() {
                 <div class="flex items-start gap-3">
                     <div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary shadow-inner text-base"><i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'}"></i></div>
                     <div>
-                        <h4 class="font-bold text-main text-sm max-w-[180px] leading-tight mb-1">${item.tasks?.task_name}</h4>
+                        <h4 class="font-bold text-main text-sm max-w-[180px] leading-tight mb-1">${item.tasks?.task_name}${item.tasks?.is_condition ? ' <span class="text-[9px] text-cyan-500 bg-cyan-500/10 px-1 py-0.5 rounded font-bold border border-cyan-500/20">⚡ĐK</span>' : ''}</h4>
                         <div class="text-xs text-muted mb-1">Bởi: <span class="text-main font-bold">${item.users?.name || item.username}</span></div>
                         <div class="text-[10px] text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 inline-block font-bold mb-1">Lịch việc: ${taskDateFormatted}</div>
                         <div class="text-[9px] text-muted"><i class="fa-regular fa-clock mr-1"></i>Nộp lúc: ${submitLabel}</div>
@@ -1524,17 +1607,48 @@ async function loadApprovals() {
 
 async function approveTask(logId, isApproved, username, points, taskName, calcAdmin = true) {
   showLoading(true); const status = isApproved ? 'Approved' : 'Rejected';
+  // Get log details for condition checking
+  const { data: logData } = await supabaseClient.from('task_logs').select('task_id, period_id').eq('id', logId).single();
   await supabaseClient.from('task_logs').update({ status: status, approved_by: currentUser.username, approved_at: new Date().toISOString() }).eq('id', logId);
   if (isApproved) {
     const { data: uData } = await supabaseClient.from('users').select('points, role').eq('username', username).single();
-    if (uData) {
+    if (uData && logData) {
       let finalPoints = points;
       if (calcAdmin === false && (uData.role === 'Admin' || uData.role === 'Moderator' || uData.role === 'Super Admin')) {
         finalPoints = 0;
       }
-      if (finalPoints > 0) {
-        await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username);
-        await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: `Được duyệt: ${taskName}` }]);
+
+      const periodId = logData.period_id;
+      const familyId = getFamilyId();
+
+      // Fetch all tasks and logs for condition checking
+      let tasksQ = supabaseClient.from('tasks').select('*');
+      if (familyId) tasksQ = tasksQ.eq('family_id', familyId);
+      const { data: rawTasks } = await tasksQ;
+      const allTasks = unpackTasks(rawTasks);
+
+      const { data: periodLogs } = await supabaseClient.from('task_logs').select('*').eq('period_id', periodId);
+      const condResult = getConditionStatusForPeriod(periodId, allTasks, periodLogs || []);
+
+      if (!condResult.hasConditions) {
+        // No condition tasks for this period → award immediately (old behavior)
+        if (finalPoints > 0) {
+          await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username);
+          await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: `Được duyệt: ${taskName}` }]);
+        }
+        await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', logId);
+      } else if (condResult.allMet) {
+        // All conditions met → award this task + any deferred tasks
+        if (finalPoints > 0) {
+          await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username);
+          await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: `Được duyệt: ${taskName}` }]);
+        }
+        await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', logId);
+        // Retroactively award deferred points for other tasks in this period
+        await awardDeferredPoints(periodId);
+      } else {
+        // Conditions not met → defer points (or mark as awarded if no points)
+        await supabaseClient.from('task_logs').update({ points_awarded: (finalPoints <= 0) }).eq('id', logId);
       }
     }
   }
@@ -1556,7 +1670,7 @@ function renderAdminList(type, data) {
     else if (type === 'tasks') {
       id = item.id; title = item.task_name;
       let freqBadge = item.frequency === 'Daily' ? 'Hàng ngày' : (item.frequency === 'Weekly' ? 'Hàng tuần' : (item.frequency === 'Monthly' ? 'Hàng tháng' : 'Sự vụ'));
-      subtitle = `<span class="bg-surface px-1.5 rounded">${freqBadge}</span> | <span class="text-success font-bold">+${item.points}</span> / <span class="text-red-400 font-bold">-${item.penalty}</span>`;
+      subtitle = `<span class="bg-surface px-1.5 rounded">${freqBadge}</span> | <span class="text-success font-bold">+${item.points}</span> / <span class="text-red-400 font-bold">-${item.penalty}</span>${item.is_condition ? ' | <span class="text-cyan-500 font-bold">⚡ĐK</span>' : ''}`;
       prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-clipboard-list'}"></i></div>`;
     }
     else if (type === 'holidays') {
@@ -1699,6 +1813,14 @@ function openModal(type, item = null) {
                     <option value="false" ${item && item.calc_admin === false ? 'selected' : ''}>Không tính điểm</option>
                 </select>
             </div>
+            <div class="mt-4">
+                <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Đánh dấu Điều Kiện</label>
+                <select id="inp-tcondition" class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-medium outline-none">
+                    <option value="false" ${!item || item.is_condition !== true ? 'selected' : ''}>Không (bình thường)</option>
+                    <option value="true" ${item && item.is_condition === true ? 'selected' : ''}>✅ Là Điều Kiện bắt buộc</option>
+                </select>
+                <p class="text-[9px] text-muted mt-1 opacity-70">Nếu bật: phải hoàn thành việc này mới tính thưởng cho các việc khác trong ngày.</p>
+            </div>
         `;
     setTimeout(() => { handleFreqChange(); if (item && item.schedule && document.getElementById('inp-tsched')) document.getElementById('inp-tsched').value = item.schedule; selectIcon(item && item.icon ? item.icon : ICONS[0]); }, 10);
   } else if (type === 'rewards') {
@@ -1775,7 +1897,8 @@ async function saveData(type, id) {
       else if (freq === 'Weekly' || freq === 'Monthly') { finalSched = sched ? parseInt(sched) : null; }
       else if (freq === 'Adhoc' || freq === 'Holiday') { finalSched = null; finalIcon = `${icon}|${sched}`; }
 
-      const data = { task_name: name, icon: finalIcon, frequency: freq, schedule: finalSched, points: pts, penalty: pen, calc_admin: calc_admin, penalty_type: penalty_type, family_id: getFamilyId() };
+      const is_condition = document.getElementById('inp-tcondition') ? document.getElementById('inp-tcondition').value === 'true' : false;
+      const data = { task_name: name, icon: finalIcon, frequency: freq, schedule: finalSched, points: pts, penalty: pen, calc_admin: calc_admin, penalty_type: penalty_type, is_condition: is_condition, family_id: getFamilyId() };
       if (id) { const res = await supabaseClient.from('tasks').update(data).eq('id', id); error = res.error; }
       else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; }
     } else if (type === 'rewards') {
