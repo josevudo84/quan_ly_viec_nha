@@ -8,6 +8,13 @@ let currentReportTimeframe = 'this_week';
 let currentReportTab = 'tasks';
 let currentApprovalFilter = 'Pending Approval';
 
+let familySettings = {
+    claim_max_days: 2,
+    claim_points_percent: 50,
+    schedule_enabled: true,
+    schedule_register_days: '6,7'
+};
+
 const ICONS = ['fa-solid fa-clipboard-list', 'fa-solid fa-broom', 'fa-solid fa-trash', 'fa-solid fa-shirt', 'fa-solid fa-utensils', 'fa-solid fa-droplet', 'fa-solid fa-leaf', 'fa-solid fa-cart-shopping', 'fa-solid fa-book', 'fa-solid fa-sink', 'fa-solid fa-bath', 'fa-solid fa-dog', 'fa-solid fa-cat', 'fa-solid fa-box', 'fa-solid fa-gamepad', 'fa-solid fa-ticket', 'fa-solid fa-tv', 'fa-solid fa-mug-hot', 'fa-solid fa-star', 'fa-solid fa-gift', 'fa-solid fa-medal', 'fa-solid fa-motorcycle', 'fa-solid fa-car', 'fa-solid fa-money-bill', 'fa-solid fa-fire', 'fa-solid fa-rocket', 'fa-solid fa-bolt'];
 
 // === ROLE HELPERS ===
@@ -239,7 +246,7 @@ async function saveAvatarUpload() {
 
 let currentReportData = { tasks: [], logs: [], startDate: null, endDate: null, users: [] };
 
-function initApp() {
+async function initApp() {
   document.getElementById('user-name').innerText = currentUser.name;
   document.getElementById('user-role').innerText = currentUser.role || 'User';
   document.getElementById('user-points').innerText = currentUser.points;
@@ -260,7 +267,33 @@ function initApp() {
   if (themesTab) {
     if (isSuperAdmin()) { themesTab.classList.remove('hidden'); } else { themesTab.classList.add('hidden'); }
   }
+  
+  await loadFamilySettings();
   switchTab('home');
+}
+
+async function loadFamilySettings() {
+    const fid = getFamilyId();
+    if (!fid) return;
+    try {
+        const { data, error } = await supabaseClient.from('family_settings').select('*').eq('family_id', fid).single();
+        if (data) {
+            familySettings.claim_max_days = data.claim_max_days ?? 2;
+            familySettings.claim_points_percent = data.claim_points_percent ?? 50;
+            familySettings.schedule_enabled = data.schedule_enabled ?? true;
+            familySettings.schedule_register_days = data.schedule_register_days ?? '6,7';
+            
+            if (familySettings.schedule_enabled) {
+                document.getElementById('nav-schedule').classList.remove('hidden');
+                document.getElementById('nav-schedule').classList.add('flex');
+            } else {
+                document.getElementById('nav-schedule').classList.add('hidden');
+                document.getElementById('nav-schedule').classList.remove('flex');
+            }
+        }
+    } catch(e) {
+        console.log('No family settings found, using defaults.');
+    }
 }
 
 function switchTab(tabId) {
@@ -272,6 +305,7 @@ function switchTab(tabId) {
   if (tabId === 'reports') loadReport(currentReportTimeframe);
   if (tabId === 'history') loadHistoryData();
   if (tabId === 'admin') loadAdminData(null);
+  if (tabId === 'schedule') loadScheduleView();
 }
 
 function unpackTasks(tasks) {
@@ -306,9 +340,13 @@ function getConditionStatusForPeriod(periodId, allTasks, allLogs) {
       if (t.frequency === 'Adhoc' && (!t.schedule || t.schedule === periodId)) return true;
       return false;
     });
+  } catch (err) {
+    console.error('Error fetching conditions:', err);
+    return { hasConditions: false, allMet: false };
   }
+}
 
-  if (dueConditionTasks.length === 0) return { hasConditions: false, allMet: true, conditionTasks: [] };
+
 
   const allMet = dueConditionTasks.every(ct => {
     return (allLogs || []).some(l => l.task_id === ct.id && l.period_id === periodId && l.status === 'Approved');
@@ -363,6 +401,13 @@ async function loadHomeData() {
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const weekStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-W${weekOfMonth}`;
 
+  // Fetch schedules for today
+  let scheduleData = [];
+  if (familySettings.schedule_enabled) {
+      const { data } = await supabaseClient.from('weekly_schedules').select('*').eq('assigned_date', todayStr);
+      if (data) scheduleData = data;
+  }
+
   const dailyTasks = []; const weeklyTasks = []; const adhocTasks = [];
 
   if (tasksData) {
@@ -376,6 +421,16 @@ async function loadHomeData() {
       }
 
       if (isDue) {
+        let assignedUser = null;
+        if (familySettings.schedule_enabled) {
+            const sched = scheduleData.find(s => s.task_id === t.id);
+            if (sched) assignedUser = sched.username;
+        }
+        
+        if (assignedUser && assignedUser !== currentUser.username && currentUser.role === 'User') {
+            return; // Skip rendering for other users if it's assigned to someone else
+        }
+
         const pType = t.penalty_type || 'all';
         let logStatus = 'Not Done', completedByName = '';
         if (logsData) {
@@ -389,7 +444,7 @@ async function loadHomeData() {
             if (log) { logStatus = log.status; completedByName = log.users?.name || log.username; }
           }
         }
-        const formattedTask = { id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, penaltyType: pType, status: logStatus, completedByName, periodId, frequency: t.frequency, icon: t.icon || 'fa-solid fa-clipboard-list', isCondition: !!t.is_condition };
+        const formattedTask = { id: t.id, name: t.task_name, points: t.points, penalty: t.penalty, penaltyType: pType, status: logStatus, completedByName, periodId, frequency: t.frequency, icon: t.icon || 'fa-solid fa-clipboard-list', isCondition: !!t.is_condition, assignedUser };
         if (!t.penalty || Number(t.penalty) <= 0) {
           adhocTasks.push(formattedTask);
         } else if (t.frequency === 'Daily') {
@@ -598,10 +653,11 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
                 </div>
                 <div class="flex flex-col justify-center flex-1 min-w-0">
                     <h3 class="font-bold text-main text-sm leading-snug line-clamp-2 mb-1.5">${t.name}${periodLabel}</h3>
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-2 flex-wrap">
                         <span class="flex items-center gap-1 text-[11px] font-black text-success ${isPremium ? 'bg-success/5' : 'bg-success/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-coins text-yellow-500"></i> +${t.points}</span>
                         ${t.penalty > 0 ? `<span class="flex items-center gap-1 text-[11px] font-black text-red-500 ${isPremium ? 'bg-red-500/5' : 'bg-red-500/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-arrow-trend-down"></i> -${t.penalty}</span>` : ''}
                         ${t.isCondition ? `<span class="flex items-center gap-1 text-[11px] font-black text-cyan-500 ${isPremium ? 'bg-cyan-500/5' : 'bg-cyan-500/10'} px-1.5 py-0.5 rounded"><i class="fa-solid fa-key"></i> ĐK</span>` : ''}
+                        ${t.assignedUser ? `<span class="flex items-center gap-1 text-[10px] font-bold text-purple-500 bg-purple-500/10 px-1.5 py-0.5 rounded border border-purple-500/20"><i class="fa-solid fa-user-check"></i> ${t.assignedUser}</span>` : ''}
                     </div>
                 </div>
             </div>
@@ -870,7 +926,10 @@ async function loadHistoryData() {
                     actionText: 'Chưa xong',
                     taskName: t.task_name,
                     userName: fullName,
-                    amount: t.penalty
+                    amount: t.penalty,
+                    taskId: t.id,
+                    periodId: pId,
+                    username_raw: uName
                   });
                 }
               }
@@ -905,23 +964,37 @@ async function loadHistoryData() {
           bgAcc = 'bg-red-500'; iconBg = 'bg-red-500/10 text-red-500'; pillClass = 'bg-red-500/10 text-red-500 border-red-500/20';
       }
 
+      let claimBtn = '';
+      if (item.type === 'Missed' && item.taskId) {
+         // Check if within claim max days
+         const now = new Date();
+         const diffTime = Math.abs(now - item.date);
+         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+         if (diffDays <= familySettings.claim_max_days && (item.username_raw === currentUser.username || currentUser.role !== 'User')) {
+             claimBtn = `<button onclick="openClaimModal('${item.taskId}', '${item.taskName.replace(/'/g, "\\'")}', '${item.periodId}', '${dateStr}')" class="mt-2 w-full bg-orange-500/10 text-orange-500 border border-orange-500/20 py-1.5 rounded-lg text-xs font-bold active-scale hover:bg-orange-500 hover:text-white transition-colors flex items-center justify-center gap-1.5"><i class="fa-solid fa-rotate-left"></i> Claim ngay</button>`;
+         }
+      }
+
       pContainer.innerHTML += `
-            <div class="bg-card border border-borderline rounded-2xl p-0 shadow-sm flex items-stretch justify-between gap-0 hover:border-primary/30 transition-all hover:shadow-md group relative overflow-hidden">
+            <div class="bg-card border border-borderline rounded-2xl p-0 shadow-sm flex flex-col gap-0 hover:border-primary/30 transition-all hover:shadow-md group relative overflow-hidden mb-2">
                 <div class="absolute inset-y-0 left-0 w-1 ${bgAcc} opacity-50"></div>
                 
-                <div class="flex flex-col items-center justify-center w-[76px] shrink-0 border-r border-borderline/50 pr-2 pl-3 py-3">
-                    <div class="w-10 h-10 rounded-2xl ${iconBg} flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform mb-1.5"><i class="fa-solid ${icon}"></i></div>
-                    <div class="text-[9px] font-black text-center leading-tight ${valClass} uppercase tracking-wider">${item.actionText}</div>
-                </div>
-                
-                <div class="flex-1 min-w-0 pl-3 pr-2 py-3 flex flex-col justify-center">
-                    ${filterUser === 'all' || item.userName === 'Toàn Đội' ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${item.userName}</div>` : ''}
-                    <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug">${item.taskName}</div>
-                    <div class="text-[10px] text-muted mt-1.5 flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</div>
-                </div>
-                
-                <div class="pr-3.5 py-3 flex items-center justify-end shrink-0">
-                    <div class="font-black text-sm px-2.5 py-1.5 rounded-xl ${pillClass} border">${sign}${item.amount}</div>
+                <div class="flex items-stretch justify-between w-full">
+                    <div class="flex flex-col items-center justify-center w-[76px] shrink-0 border-r border-borderline/50 pr-2 pl-3 py-3">
+                        <div class="w-10 h-10 rounded-2xl ${iconBg} flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform mb-1.5"><i class="fa-solid ${icon}"></i></div>
+                        <div class="text-[9px] font-black text-center leading-tight ${valClass} uppercase tracking-wider">${item.actionText}</div>
+                    </div>
+                    
+                    <div class="flex-1 min-w-0 pl-3 pr-2 py-3 flex flex-col justify-center">
+                        ${filterUser === 'all' || item.userName === 'Toàn Đội' ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${item.userName}</div>` : ''}
+                        <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug">${item.taskName}</div>
+                        <div class="text-[10px] text-muted mt-1.5 flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</div>
+                        ${claimBtn}
+                    </div>
+                    
+                    <div class="pr-3.5 py-3 flex items-center justify-end shrink-0">
+                        <div class="font-black text-sm px-2.5 py-1.5 rounded-xl ${pillClass} border">${sign}${item.amount}</div>
+                    </div>
                 </div>
             </div>`;
     });
@@ -1390,6 +1463,9 @@ async function loadAdminData(type) {
   if (type === 'themes') {
     addBtn.style.display = 'none'; resetBtn.style.display = 'none';
     renderThemeAdmin();
+  } else if (type === 'settings') {
+    addBtn.style.display = 'none'; resetBtn.style.display = 'none';
+    renderSettingsAdmin();
   } else if (type === 'approvals') {
     currentApprovalFilter = 'Pending Approval';
     addBtn.style.display = 'none'; resetBtn.style.display = 'none'; await loadApprovals();
@@ -1590,13 +1666,17 @@ async function loadApprovals() {
                 <div class="flex items-start gap-3">
                     <div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-primary shadow-inner text-base"><i class="${item.tasks?.icon || 'fa-solid fa-clipboard-list'}"></i></div>
                     <div>
-                        <h4 class="font-bold text-main text-sm max-w-[180px] leading-tight mb-1">${item.tasks?.task_name}${item.tasks?.is_condition ? ' <span class="text-[9px] text-cyan-500 bg-cyan-500/10 px-1 py-0.5 rounded font-bold border border-cyan-500/20">⚡ĐK</span>' : ''}</h4>
+                        <h4 class="font-bold text-main text-sm max-w-[180px] leading-tight mb-1">${item.tasks?.task_name}${item.tasks?.is_condition ? ' <span class="text-[9px] text-cyan-500 bg-cyan-500/10 px-1 py-0.5 rounded font-bold border border-cyan-500/20">⚡ĐK</span>' : ''}${item.is_claim ? ' <span class="text-[9px] text-orange-500 bg-orange-500/10 px-1 py-0.5 rounded font-bold border border-orange-500/20">🔄 CLAIM</span>' : ''}</h4>
                         <div class="text-xs text-muted mb-1">Bởi: <span class="text-main font-bold">${item.users?.name || item.username}</span></div>
                         <div class="text-[10px] text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 inline-block font-bold mb-1">Lịch việc: ${taskDateFormatted}</div>
                         <div class="text-[9px] text-muted"><i class="fa-regular fa-clock mr-1"></i>Nộp lúc: ${submitLabel}</div>
+                        ${item.is_claim && item.claim_reason ? `<div class="text-[10px] text-muted italic mt-1 bg-surface p-1.5 rounded w-full line-clamp-2">Lý do: ${item.claim_reason}</div>` : ''}
                     </div>
                 </div>
-                <div class="text-success font-black text-sm bg-success/10 px-2 py-1 rounded border border-success/20">+${item.tasks?.points}</div>
+                <div class="flex flex-col items-end">
+                    <div class="text-success font-black text-sm bg-success/10 px-2 py-1 rounded border border-success/20">+${item.is_claim ? Math.floor(item.tasks?.points * familySettings.claim_points_percent / 100) : item.tasks?.points}</div>
+                    ${item.is_claim ? `<div class="text-[9px] text-muted mt-1 text-right max-w-[60px] leading-tight">Chỉ nhận ${familySettings.claim_points_percent}%</div>` : ''}
+                </div>
             </div>
             <div class="flex gap-2 mt-4">
                 ${buttonsHtml}
@@ -1607,13 +1687,20 @@ async function loadApprovals() {
 
 async function approveTask(logId, isApproved, username, points, taskName, calcAdmin = true) {
   showLoading(true); const status = isApproved ? 'Approved' : 'Rejected';
-  // Get log details for condition checking
-  const { data: logData } = await supabaseClient.from('task_logs').select('task_id, period_id').eq('id', logId).single();
+  // Get log details for condition checking and claim logic
+  const { data: logData } = await supabaseClient.from('task_logs').select('task_id, period_id, is_claim').eq('id', logId).single();
   await supabaseClient.from('task_logs').update({ status: status, approved_by: currentUser.username, approved_at: new Date().toISOString() }).eq('id', logId);
   if (isApproved) {
     const { data: uData } = await supabaseClient.from('users').select('points, role').eq('username', username).single();
     if (uData && logData) {
       let finalPoints = points;
+      let transactionDesc = `Được duyệt: ${taskName}`;
+      
+      if (logData.is_claim) {
+          finalPoints = Math.floor(points * familySettings.claim_points_percent / 100);
+          transactionDesc = `🔄 Claim: ${taskName} (${familySettings.claim_points_percent}%)`;
+      }
+      
       if (calcAdmin === false && (uData.role === 'Admin' || uData.role === 'Moderator' || uData.role === 'Super Admin')) {
         finalPoints = 0;
       }
@@ -1634,14 +1721,14 @@ async function approveTask(logId, isApproved, username, points, taskName, calcAd
         // No condition tasks for this period → award immediately (old behavior)
         if (finalPoints > 0) {
           await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username);
-          await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: `Được duyệt: ${taskName}` }]);
+          await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: transactionDesc }]);
         }
         await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', logId);
       } else if (condResult.allMet) {
         // All conditions met → award this task + any deferred tasks
         if (finalPoints > 0) {
           await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username);
-          await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: `Được duyệt: ${taskName}` }]);
+          await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: transactionDesc }]);
         }
         await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', logId);
         // Retroactively award deferred points for other tasks in this period
@@ -1865,6 +1952,66 @@ function openModal(type, item = null) {
 }
 
 function closeModal() { document.getElementById('admin-modal').classList.add('hidden'); }
+
+// === CLAIM LOGIC ===
+let currentClaimData = null;
+function openClaimModal(taskId, taskName, periodId, dateStr) {
+    currentClaimData = { taskId, taskName, periodId };
+    document.getElementById('claim-task-info').innerText = `${taskName} - ${dateStr}`;
+    document.getElementById('claim-percent-info').innerText = familySettings.claim_points_percent;
+    document.getElementById('claim-reason').value = '';
+    document.getElementById('claim-modal').classList.remove('hidden');
+    document.getElementById('claim-modal').classList.add('flex');
+    
+    document.getElementById('claim-submit-btn').onclick = async () => {
+        const reason = document.getElementById('claim-reason').value.trim();
+        await claimTask(taskId, periodId, reason);
+    };
+}
+function closeClaimModal() {
+    document.getElementById('claim-modal').classList.add('hidden');
+    document.getElementById('claim-modal').classList.remove('flex');
+    currentClaimData = null;
+}
+async function claimTask(taskId, periodId, reason) {
+    if (!currentUser) return;
+    showLoading(true);
+    
+    // Check if a log already exists for this claim
+    const { data: existingLog } = await supabaseClient.from('task_logs')
+        .select('*')
+        .eq('task_id', taskId)
+        .eq('period_id', periodId)
+        .eq('username', currentUser.username)
+        .single();
+        
+    if (existingLog) {
+        showLoading(false);
+        return showToast('Công việc này đã được nộp hoặc claim trước đó!', 'error');
+    }
+    
+    const payload = {
+        task_id: taskId,
+        period_id: periodId,
+        username: currentUser.username,
+        status: 'Pending Approval',
+        is_claim: true,
+        claim_reason: reason
+    };
+    
+    const { error } = await supabaseClient.from('task_logs').insert([payload]);
+    showLoading(false);
+    
+    if (error) {
+        showToast('Lỗi khi claim: ' + error.message, 'error');
+    } else {
+        closeClaimModal();
+        showToast('Đã gửi yêu cầu claim!', 'success');
+        if (typeof loadHistoryData === 'function' && document.getElementById('view-history').classList.contains('hidden') === false) {
+            loadHistoryData();
+        }
+    }
+}
 
 async function saveData(type, id) {
   showLoading(true); let error = null;
@@ -2501,5 +2648,185 @@ function renderThemeAdmin() {
       </div>
     </div>`;
 
+    </div>`;
+
   container.innerHTML = html;
+}
+
+// === SCHEDULE LOGIC ===
+let currentScheduleWeekStart = getMonday(new Date());
+
+function getMonday(d) {
+  const dt = new Date(d);
+  const day = dt.getDay(), diff = dt.getDate() - day + (day == 0 ? -6:1);
+  return new Date(dt.setDate(diff));
+}
+
+function changeScheduleWeek(offset) {
+    currentScheduleWeekStart.setDate(currentScheduleWeekStart.getDate() + (offset * 7));
+    loadScheduleView();
+}
+
+function isScheduleRegistrationOpen() {
+    if (!familySettings.schedule_enabled) return false;
+    const today = new Date().getDay();
+    // JS getDay(): 0=Sun, 1=Mon...6=Sat.
+    // UI mapping: 1=Sun, 2=Mon...7=Sat. So it matches JS getDay() + 1.
+    const allowedStr = familySettings.schedule_register_days || '6,7';
+    const allowed = allowedStr.split(',').map(Number);
+    return allowed.includes(today + 1);
+}
+
+async function loadScheduleView() {
+    if (!currentUser) return;
+    showLoading(true);
+    const fid = getFamilyId();
+    
+    const startOfWeek = new Date(currentScheduleWeekStart);
+    startOfWeek.setHours(0,0,0,0);
+    const endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(endOfWeek.getDate() + 6);
+    endOfWeek.setHours(23,59,59,999);
+    
+    document.getElementById('schedule-week-range').innerText = `${startOfWeek.toLocaleDateString('vi-VN')} - ${endOfWeek.toLocaleDateString('vi-VN')}`;
+    
+    const dates = [];
+    for(let i=0; i<7; i++) {
+        const d = new Date(startOfWeek);
+        d.setDate(d.getDate() + i);
+        dates.push(d);
+    }
+    
+    const daysHeader = document.getElementById('schedule-days-header');
+    daysHeader.innerHTML = dates.map(d => {
+        const isToday = new Date().toDateString() === d.toDateString();
+        const dayNames = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+        return `<div class="flex flex-col items-center justify-center p-2 rounded-xl ${isToday ? 'bg-primary text-white shadow-md' : 'bg-surface text-muted'}">
+            <span class="text-[9px] font-bold">${dayNames[d.getDay()]}</span>
+            <span class="text-xs font-black">${d.getDate()}</span>
+        </div>`;
+    }).join('');
+    
+    let tasksQuery = supabaseClient.from('tasks').select('*');
+    if (fid) tasksQuery = tasksQuery.eq('family_id', fid);
+    
+    let scheduleQuery = supabaseClient.from('weekly_schedules').select('*')
+        .gte('assigned_date', startOfWeek.toISOString().split('T')[0])
+        .lte('assigned_date', endOfWeek.toISOString().split('T')[0]);
+        
+    const [tasksRes, schedRes, usersRes] = await Promise.all([tasksQuery, scheduleQuery, supabaseClient.from('users').select('username, name, avatar')]);
+    showLoading(false);
+    
+    if (tasksRes.error || schedRes.error) return showToast('Lỗi tải lịch tuần', 'error');
+    
+    const tasks = tasksRes.data || [];
+    const schedules = schedRes.data || [];
+    const usersList = usersRes.data || [];
+    
+    const schedTasks = tasks.filter(t => t.frequency === 'Daily' || t.frequency === 'Weekly');
+    
+    const listContainer = document.getElementById('schedule-list-container');
+    listContainer.innerHTML = '';
+    
+    const isRegOpen = isScheduleRegistrationOpen();
+    const currentWeekStart = getMonday(new Date());
+    currentWeekStart.setHours(0,0,0,0);
+    const isPastWeek = startOfWeek.getTime() < currentWeekStart.getTime();
+    
+    if (schedTasks.length === 0) {
+        listContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có công việc nào cần lên lịch.</div>';
+        return;
+    }
+    
+    const grouped = dates.map(d => {
+        const dateStr = d.toISOString().split('T')[0];
+        
+        let html = `<div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
+            <h3 class="font-black text-main text-sm mb-3 pb-2 border-b border-borderline"><i class="fa-regular fa-calendar-check text-primary mr-2"></i>${d.toLocaleDateString('vi-VN')}</h3>
+            <div class="space-y-3">`;
+            
+        let taskCount = 0;
+        schedTasks.forEach(t => {
+            let applies = false;
+            if (t.frequency === 'Daily') applies = true;
+            if (t.frequency === 'Weekly' && t.schedule == (d.getDay() === 0 ? 8 : d.getDay() + 1)) applies = true;
+            
+            if (applies) {
+                taskCount++;
+                const assigned = schedules.filter(s => s.task_id === t.id && s.assigned_date === dateStr);
+                const myReg = assigned.find(a => a.username === currentUser.username);
+                
+                let assignedUsersHTML = '';
+                if (assigned.length > 0) {
+                    assignedUsersHTML = `<div class="flex flex-wrap gap-1 mt-2">`;
+                    assigned.forEach(a => {
+                        const uInfo = usersList.find(u => u.username === a.username);
+                        const uName = uInfo ? uInfo.name : a.username;
+                        assignedUsersHTML += `<span class="text-[9px] font-bold px-2 py-0.5 rounded-full ${a.username === currentUser.username ? 'bg-primary/20 text-primary border-primary/30' : 'bg-surface text-muted border-borderline'} border flex items-center gap-1"><i class="fa-solid fa-user"></i> ${uName}</span>`;
+                    });
+                    assignedUsersHTML += `</div>`;
+                }
+                
+                let btnHTML = '';
+                if (!isPastWeek) {
+                    if (myReg) {
+                        btnHTML = `<button onclick="unregisterSchedule('${myReg.id}')" class="shrink-0 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg active-scale"><i class="fa-solid fa-minus"></i></button>`;
+                    } else if (isRegOpen && assigned.length === 0) {
+                        btnHTML = `<button onclick="registerSchedule('${t.id}', '${dateStr}')" class="shrink-0 w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center shadow-lg active-scale"><i class="fa-solid fa-plus"></i></button>`;
+                    } else if (assigned.length > 0) {
+                        btnHTML = `<div class="shrink-0 w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center border border-borderline"><i class="fa-solid fa-lock"></i></div>`;
+                    }
+                }
+                
+                html += `
+                    <div class="flex items-start justify-between gap-3 ${myReg ? 'opacity-100' : (assigned.length > 0 ? 'opacity-50' : '')}">
+                        <div class="flex items-start gap-2">
+                            <div class="w-8 h-8 rounded-lg bg-surface flex items-center justify-center text-primary shadow-inner text-sm mt-0.5"><i class="${t.icon || 'fa-solid fa-tasks'}"></i></div>
+                            <div>
+                                <div class="font-bold text-main text-sm leading-tight">${t.task_name}</div>
+                                <div class="text-[10px] text-success font-bold mt-0.5">+${t.points} điểm</div>
+                                ${assignedUsersHTML}
+                            </div>
+                        </div>
+                        ${btnHTML}
+                    </div>
+                `;
+            }
+        });
+        
+        if (taskCount === 0) {
+            html += `<div class="text-[11px] text-muted text-center py-2 italic">Không có việc</div>`;
+        }
+        
+        html += `</div></div>`;
+        return html;
+    }).join('');
+    
+    listContainer.innerHTML = grouped;
+}
+
+async function registerSchedule(taskId, dateStr) {
+    if (!currentUser) return;
+    showLoading(true);
+    const { error } = await supabaseClient.from('weekly_schedules').insert([{
+        task_id: taskId,
+        username: currentUser.username,
+        assigned_date: dateStr
+    }]);
+    if (error) showToast('Lỗi đăng ký: ' + error.message, 'error');
+    else {
+        showToast('Đã đăng ký nhận việc!', 'success');
+        loadScheduleView();
+    }
+}
+
+async function unregisterSchedule(id) {
+    if (!currentUser) return;
+    showLoading(true);
+    const { error } = await supabaseClient.from('weekly_schedules').delete().eq('id', id);
+    if (error) showToast('Lỗi huỷ: ' + error.message, 'error');
+    else {
+        showToast('Đã huỷ đăng ký!', 'success');
+        loadScheduleView();
+    }
 }
