@@ -340,13 +340,9 @@ function getConditionStatusForPeriod(periodId, allTasks, allLogs) {
       if (t.frequency === 'Adhoc' && (!t.schedule || t.schedule === periodId)) return true;
       return false;
     });
-  } catch (err) {
-    console.error('Error fetching conditions:', err);
-    return { hasConditions: false, allMet: false };
   }
-}
 
-
+  if (dueConditionTasks.length === 0) return { hasConditions: false, allMet: true, conditionTasks: [] };
 
   const allMet = dueConditionTasks.every(ct => {
     return (allLogs || []).some(l => l.task_id === ct.id && l.period_id === periodId && l.status === 'Approved');
@@ -2646,8 +2642,6 @@ function renderThemeAdmin() {
           <p>Mỗi thành viên có thể tự chọn giao diện riêng bằng biểu tượng <i class="fa-solid fa-palette"></i> ở thanh trên cùng.</p>
         </div>
       </div>
-    </div>`;
-
     </div>`;
 
   container.innerHTML = html;
