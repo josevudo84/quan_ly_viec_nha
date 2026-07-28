@@ -298,9 +298,11 @@ async function loadFamilySettings() {
 
 function switchTab(tabId) {
   document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
-  document.getElementById(`view-${tabId}`).classList.remove('hidden');
+  var viewEl = document.getElementById('view-' + tabId);
+  if (viewEl) viewEl.classList.remove('hidden');
   document.querySelectorAll('.nav-btn').forEach(el => { el.classList.remove('text-primary'); el.classList.add('text-muted'); });
-  document.getElementById(`nav-${tabId}`).classList.remove('text-muted'); document.getElementById(`nav-${tabId}`).classList.add('text-primary');
+  var navEl = document.getElementById('nav-' + tabId);
+  if (navEl) { navEl.classList.remove('text-muted'); navEl.classList.add('text-primary'); }
   if (tabId === 'home') loadHomeData();
   if (tabId === 'reports') loadReport(currentReportTimeframe);
   if (tabId === 'history') loadHistoryData();
