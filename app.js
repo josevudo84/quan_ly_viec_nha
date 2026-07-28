@@ -2649,62 +2649,64 @@ function renderThemeAdmin() {
 
 // === FAMILY SETTINGS LOGIC ===
 function renderSettingsAdmin() {
-  const container = document.getElementById('admin-list-container');
+  var container = document.getElementById('admin-list-container');
+  if (!container) { console.error('admin-list-container not found'); return; }
   
-  let html = `
-    <div class="mb-4">
-      <h3 class="font-black text-main text-lg mb-4">Cài Đặt Tính Năng</h3>
-      
-      <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm space-y-4">
-        
-        <div>
-          <label class="block text-xs font-bold text-main mb-1">Số ngày cho phép Claim</label>
-          <p class="text-[10px] text-muted mb-2">Số ngày tối đa user có thể claim lại công việc bị lỡ (mặc định 2 ngày).</p>
-          <input type="number" id="setting-claim-days" class="w-full bg-input border border-borderline rounded-xl px-3 py-2 text-sm text-main focus:outline-none focus:border-primary transition-all" value="${familySettings.claim_max_days}">
-        </div>
+  var daysArr = [2,3,4,5,6,7,1];
+  var dayLabels = {1:'CN', 2:'T2', 3:'T3', 4:'T4', 5:'T5', 6:'T6', 7:'T7'};
+  var allowedDays = (familySettings.schedule_register_days || '6,7').split(',');
+  var daysHtml = '';
+  for (var i = 0; i < daysArr.length; i++) {
+    var d = daysArr[i];
+    var chk = allowedDays.indexOf(String(d)) >= 0 ? 'checked' : '';
+    daysHtml += '<label class="flex items-center gap-1.5 cursor-pointer bg-input border border-borderline rounded-lg px-2.5 py-1.5">' +
+      '<input type="checkbox" value="' + d + '" class="w-4 h-4 accent-[var(--primary)]" ' + chk + '>' +
+      '<span class="text-xs font-medium text-main">' + dayLabels[d] + '</span></label>';
+  }
 
-        <div>
-          <label class="block text-xs font-bold text-main mb-1">% Điểm thưởng khi Claim</label>
-          <p class="text-[10px] text-muted mb-2">Phần trăm số điểm nhận được so với điểm gốc (mặc định 50%). Penalty sẽ được xoá 100%.</p>
-          <div class="relative">
-             <input type="number" id="setting-claim-percent" class="w-full bg-input border border-borderline rounded-xl pl-3 pr-8 py-2 text-sm text-main focus:outline-none focus:border-primary transition-all" value="${familySettings.claim_points_percent}">
-             <div class="absolute right-3 top-1/2 -translate-y-1/2 text-muted text-sm font-bold">%</div>
-          </div>
-        </div>
-        
-        <hr class="border-borderline my-4">
+  var schedChk = familySettings.schedule_enabled ? 'checked' : '';
 
-        <div class="flex items-center justify-between">
-            <div>
-                <label class="block text-xs font-bold text-main">Bật/Tắt Lên Lịch Tuần</label>
-                <p class="text-[10px] text-muted">Cho phép các thành viên chủ động chọn việc trước cho tuần sau.</p>
-            </div>
-            <label class="relative inline-flex items-center cursor-pointer">
-              <input type="checkbox" id="setting-schedule-enabled" class="sr-only peer" ${familySettings.schedule_enabled ? 'checked' : ''}>
-              <div class="w-9 h-5 bg-borderline peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-            </label>
-        </div>
+  var html = '<div class="mb-4">' +
+    '<h3 class="font-black text-main text-lg mb-4"><i class="fa-solid fa-gear text-primary mr-2"></i>Cài Đặt Tính Năng</h3>' +
+    '<div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm space-y-5">' +
+    
+    '<div>' +
+      '<label class="block text-xs font-bold text-main mb-1"><i class="fa-solid fa-clock-rotate-left text-primary mr-1"></i>Số ngày cho phép Claim</label>' +
+      '<p class="text-[10px] text-muted mb-2">Số ngày tối đa user có thể claim lại công việc bị lỡ.</p>' +
+      '<input type="number" min="0" max="30" id="setting-claim-days" class="w-full bg-input border border-borderline rounded-xl px-3 py-2.5 text-sm text-main" value="' + familySettings.claim_max_days + '">' +
+    '</div>' +
 
-        <div>
-          <label class="block text-xs font-bold text-main mb-1">Ngày cho phép đăng ký Lịch</label>
-          <p class="text-[10px] text-muted mb-2">Các ngày trong tuần mở cửa đăng ký (mặc định '6,7' tức Thứ 7 và Chủ Nhật).</p>
-          <div class="flex flex-wrap gap-2" id="setting-schedule-days">
-            ${[2,3,4,5,6,7,1].map(d => {
-                const dayName = d === 1 ? 'CN' : 'T' + d;
-                const isChecked = (familySettings.schedule_register_days || '6,7').split(',').includes(d.toString());
-                return '<label class="flex items-center gap-1 cursor-pointer">' +
-                    '<input type="checkbox" value="' + d + '" class="w-4 h-4 text-primary bg-input border-borderline rounded focus:ring-primary focus:ring-2" ' + (isChecked ? 'checked' : '') + '>' +
-                    '<span class="text-xs font-medium text-main">' + dayName + '</span>' +
-                '</label>';
-            }).join('')}
-          </div>
-        </div>
+    '<div>' +
+      '<label class="block text-xs font-bold text-main mb-1"><i class="fa-solid fa-percent text-primary mr-1"></i>% Điểm thưởng khi Claim</label>' +
+      '<p class="text-[10px] text-muted mb-2">Phần trăm số điểm nhận được so với điểm gốc. Penalty sẽ được xoá 100%.</p>' +
+      '<div class="relative">' +
+        '<input type="number" min="0" max="100" id="setting-claim-percent" class="w-full bg-input border border-borderline rounded-xl pl-3 pr-10 py-2.5 text-sm text-main" value="' + familySettings.claim_points_percent + '">' +
+        '<div class="absolute right-3 top-1/2 -translate-y-1/2 text-muted text-sm font-bold">%</div>' +
+      '</div>' +
+    '</div>' +
+    
+    '<hr class="border-borderline">' +
 
-      </div>
-      
-      <button onclick="saveFamilySettings()" class="w-full mt-4 bg-primary text-white font-bold py-3 rounded-xl shadow-lg active-scale transition-all">Lưu Cài Đặt</button>
-    </div>
-  `;
+    '<div class="flex items-center justify-between">' +
+      '<div>' +
+        '<label class="block text-xs font-bold text-main"><i class="fa-solid fa-calendar-week text-primary mr-1"></i>Bật/Tắt Lên Lịch Tuần</label>' +
+        '<p class="text-[10px] text-muted">Cho phép các thành viên chủ động chọn việc trước.</p>' +
+      '</div>' +
+      '<div class="flex items-center">' +
+        '<input type="checkbox" id="setting-schedule-enabled" class="w-5 h-5 accent-[var(--primary)] cursor-pointer" ' + schedChk + '>' +
+      '</div>' +
+    '</div>' +
+
+    '<div>' +
+      '<label class="block text-xs font-bold text-main mb-1"><i class="fa-solid fa-calendar-days text-primary mr-1"></i>Ngày cho phép đăng ký Lịch</label>' +
+      '<p class="text-[10px] text-muted mb-2">Các ngày trong tuần mở cửa đăng ký.</p>' +
+      '<div class="flex flex-wrap gap-2" id="setting-schedule-days">' + daysHtml + '</div>' +
+    '</div>' +
+
+    '</div>' +
+    '<button onclick="saveFamilySettings()" class="w-full mt-4 bg-primary text-white font-bold py-3 rounded-xl shadow-lg active-scale transition-all"><i class="fa-solid fa-floppy-disk mr-2"></i>Lưu Cài Đặt</button>' +
+  '</div>';
+
   container.innerHTML = html;
 }
 
