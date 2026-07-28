@@ -2649,7 +2649,7 @@ function renderThemeAdmin() {
 
 // === FAMILY SETTINGS LOGIC ===
 function renderSettingsAdmin() {
-  const container = document.getElementById('admin-content');
+  const container = document.getElementById('admin-list-container');
   
   let html = `
     <div class="mb-4">
