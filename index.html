@@ -982,19 +982,16 @@
             class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 overflow-y-auto">
-        <div class="text-center mb-4">
-          <div class="text-sm text-muted">Thành viên nhận thưởng</div>
-          <div id="grant-username" class="font-bold text-main text-lg text-primary"></div>
+        <div class="text-center mb-4 bg-primary/10 rounded-2xl p-3 border border-primary/20">
+          <div class="text-[10px] text-muted uppercase font-bold tracking-wider">Phần thưởng</div>
+          <div id="grant-reward-name" class="font-bold text-primary text-lg"></div>
+          <div id="grant-reward-points" class="text-sm text-yellow-500 font-black"></div>
         </div>
         <div>
-          <label class="block text-[10px] text-muted mb-1 font-bold tracking-wider">CHỌN PHẦN THƯỞNG</label>
-          <select id="grant-reward-select"
-            class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none">
-          </select>
+          <label class="block text-[10px] text-muted mb-2 font-bold tracking-wider">CHỌN THÀNH VIÊN NHẬN</label>
+          <div id="grant-user-list" class="space-y-2 max-h-[40vh] overflow-y-auto"></div>
         </div>
       </div>
-      <div class="p-5 border-t border-borderline bg-input"><button onclick="grantBonusReward()"
-          class="w-full bg-primary text-white font-bold py-3.5 rounded-xl active-scale shadow-lg shadow-primary/30">Trao thưởng ngay</button></div>
     </div>
   </div>
 
@@ -1069,7 +1066,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=2.5"></script>
+  <script src="app.js?v=2.6"></script>
 </body>
 
 </html>

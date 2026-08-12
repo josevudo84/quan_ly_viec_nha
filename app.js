@@ -1791,6 +1791,9 @@ function renderAdminList(type, data) {
       let badge = item.is_point_reward ? ' <span class="bg-primary/10 text-primary px-1.5 rounded text-[10px]">🎁 Thưởng điểm</span>' : '';
       subtitle = `<span class="text-yellow-500 font-bold">${item.cost} pts</span>${badge}`;
       prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-gift'}"></i></div>`;
+      if (item.is_point_reward) {
+        actionHTML = `<button onclick="openGrantByRewardModal('${item.id}', '${item.reward_name.replace(/'/g, "\\'")}', ${item.cost})" class="px-3 py-1.5 rounded-xl bg-primary text-white text-xs font-bold active-scale shadow-md shadow-primary/30 flex items-center gap-1.5 mr-1"><i class="fa-solid fa-paper-plane text-[10px]"></i> Trao</button>`;
+      }
     }
     else if (type === 'violations') {
       id = item.id; title = item.task_name;
@@ -2132,21 +2135,45 @@ async function saveAdjustPoints() {
 
 
 async function openGrantBonusModal(username, name) {
-  window.currentGrantUser = username;
-  document.getElementById('grant-username').innerText = name;
-  let rewardsQuery = supabaseClient.from('rewards').select('*');
-  if (getFamilyId()) rewardsQuery = rewardsQuery.eq('family_id', getFamilyId());
-  rewardsQuery = rewardsQuery.eq('is_point_reward', true);
-  const { data: rewards } = await rewardsQuery;
-  const select = document.getElementById('grant-reward-select');
-  select.innerHTML = '';
-  if (!rewards || rewards.length === 0) {
-    select.innerHTML = '<option value="">Chưa có phần thưởng điểm nào được tạo</option>';
+  // Legacy: called from users tab - keep backward compat
+  openGrantByRewardModal(null, null, null, username, name);
+}
+
+async function openGrantByRewardModal(rewardId, rewardName, points, preselectedUser, preselectedName) {
+  window.currentGrantRewardId = rewardId;
+  window.currentGrantRewardName = rewardName;
+  window.currentGrantPoints = points;
+
+  document.getElementById('grant-reward-name').innerText = rewardName || 'Chọn phần thưởng';
+  document.getElementById('grant-reward-points').innerText = points ? `+${points} điểm` : '';
+
+  // Load users
+  let usersQuery = supabaseClient.from('users').select('*');
+  if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
+  const { data: users } = await usersQuery;
+
+  const container = document.getElementById('grant-user-list');
+  container.innerHTML = '';
+
+  if (!users || users.length === 0) {
+    container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Không có thành viên nào.</div>';
   } else {
-    rewards.forEach(r => {
-      select.innerHTML += `<option value="${r.id}" data-points="${r.cost}">${r.reward_name} (+${r.cost} pts)</option>`;
+    users.forEach(u => {
+      const avatarHtml = u.avatar && u.avatar.trim() !== ''
+        ? `<img src="${u.avatar}" class="w-9 h-9 rounded-full object-cover">`
+        : `<div class="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-purple-500 flex items-center justify-center text-white text-sm font-bold">${u.name.charAt(0)}</div>`;
+      container.innerHTML += `
+        <button onclick="grantBonusToUser('${u.username}', '${u.name.replace(/'/g, "\\'")}')" class="w-full flex items-center gap-3 p-3 bg-surface rounded-2xl border border-borderline hover:border-primary/40 hover:bg-primary/5 active-scale transition-all">
+          ${avatarHtml}
+          <div class="flex-1 text-left">
+            <div class="font-bold text-main text-sm">${u.name}</div>
+            <div class="text-[10px] text-muted">${u.role} · ${u.points} pts</div>
+          </div>
+          <div class="text-primary text-xs font-bold"><i class="fa-solid fa-paper-plane"></i></div>
+        </button>`;
     });
   }
+
   document.getElementById('grant-bonus-modal').classList.remove('hidden');
   document.getElementById('grant-bonus-modal').classList.add('flex');
 }
@@ -2156,25 +2183,23 @@ function closeGrantBonusModal() {
   document.getElementById('grant-bonus-modal').classList.remove('flex');
 }
 
-async function grantBonusReward() {
-  const select = document.getElementById('grant-reward-select');
-  if (!select.value) return showToast('Vui lòng chọn phần thưởng hợp lệ!', 'error');
-  const option = select.options[select.selectedIndex];
-  const rewardName = option.text.split(' (+')[0];
-  const points = parseInt(option.getAttribute('data-points'));
-  
+async function grantBonusToUser(username, userName) {
+  if (!window.currentGrantRewardName || !window.currentGrantPoints) {
+    return showToast('Lỗi: không xác định được phần thưởng!', 'error');
+  }
+
   showLoading(true);
-  const { error } = await supabaseClient.from('transactions').insert([{ 
-    username: window.currentGrantUser, 
-    type: 'Bonus_Pending', 
-    amount: points, 
-    description: `[Chờ nhận] Thưởng điểm: ${rewardName}` 
+  const { error } = await supabaseClient.from('transactions').insert([{
+    username: username,
+    type: 'Bonus_Pending',
+    amount: window.currentGrantPoints,
+    description: `[Chờ nhận] Thưởng điểm: ${window.currentGrantRewardName}`
   }]);
-  
+
   showLoading(false);
   if (error) return showToast(error.message, 'error');
-  
-  showToast('Đã trao thưởng thành công! Chờ user xác nhận.', 'mega-success');
+
+  showToast(`Đã trao "${window.currentGrantRewardName}" cho ${userName}! Chờ xác nhận.`, 'mega-success');
   closeGrantBonusModal();
 }
 
