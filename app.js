@@ -52,6 +52,41 @@ function showToast(msg, type = 'success') {
   setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, type === 'mega-success' ? 5000 : 3000);
 }
 
+// Styled replacement for window.confirm() so confirmation prompts match the app's UI
+// instead of the jarring native browser dialog. Resolves true/false like confirm().
+function customConfirm(message, title = 'Xác nhận', okText = 'Xác nhận') {
+  return new Promise((resolve) => {
+    const overlay = document.getElementById('custom-confirm');
+    const dialog = overlay.querySelector('.confirm-dialog');
+    const okBtn = document.getElementById('confirm-ok');
+    const cancelBtn = document.getElementById('confirm-cancel');
+
+    document.getElementById('confirm-title').innerText = title;
+    document.getElementById('confirm-message').innerText = message;
+    okBtn.innerText = okText;
+
+    overlay.classList.remove('hidden');
+    overlay.classList.add('flex');
+    requestAnimationFrame(() => dialog.classList.add('show'));
+
+    const cleanup = (result) => {
+      dialog.classList.remove('show');
+      setTimeout(() => { overlay.classList.add('hidden'); overlay.classList.remove('flex'); }, 200);
+      okBtn.removeEventListener('click', onOk);
+      cancelBtn.removeEventListener('click', onCancel);
+      overlay.removeEventListener('click', onOverlayClick);
+      resolve(result);
+    };
+    const onOk = () => cleanup(true);
+    const onCancel = () => cleanup(false);
+    const onOverlayClick = (e) => { if (e.target === overlay) cleanup(false); };
+
+    okBtn.addEventListener('click', onOk);
+    cancelBtn.addEventListener('click', onCancel);
+    overlay.addEventListener('click', onOverlayClick);
+  });
+}
+
 async function refreshUserPoints() {
   if (!currentUser || !supabaseClient) return;
   try {
@@ -609,11 +644,11 @@ function formatPeriodId(periodId) {
 }
 
 function renderTaskGroup(tasks, containerId, emptyMsg) {
-  const container = document.getElementById(containerId); container.innerHTML = '';
+  const container = document.getElementById(containerId);
   if (tasks.length === 0) { container.innerHTML = `<div class="text-center text-muted py-6 text-xs bg-card border border-borderline rounded-2xl border-dashed">${emptyMsg}</div>`; return false; }
 
   let hasPending = false;
-  tasks.forEach(t => {
+  const cardsHtml = tasks.map(t => {
     if (t.status === 'Not Done' && t.penalty > 0) hasPending = true;
     let rightColHtml = '';
     const isPremium = isPremiumTheme();
@@ -643,7 +678,7 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
       periodLabel = `<span class="text-[9px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 ml-1.5 inline-block shrink-0">Lịch cũ: ${formatPeriodId(t.periodId)}</span>`;
     }
 
-    container.innerHTML += `
+    return `
         <div class="${cardClass} ${!isPremium ? '' : 'flex items-center justify-between'}">
             ${t.status === 'Approved' && !isPremium ? '<div class="absolute inset-0 bg-success/5 pointer-events-none"></div>' : ''}
             <div class="flex items-center gap-3.5 relative z-10 flex-1 min-w-0">
@@ -660,12 +695,13 @@ function renderTaskGroup(tasks, containerId, emptyMsg) {
                     </div>
                 </div>
             </div>
-            
+
             <div class="relative z-10 shrink-0">
                 ${rightColHtml}
             </div>
         </div>`;
   });
+  container.innerHTML = cardsHtml.join('');
   return hasPending;
 }
 
@@ -700,21 +736,21 @@ async function submitTask(taskId, periodId) {
 }
 
 function renderRewards(rewards) {
-  const container = document.getElementById('home-rewards-container'); container.innerHTML = '';
-  rewards.forEach(r => {
+  const container = document.getElementById('home-rewards-container');
+  container.innerHTML = rewards.map(r => {
     const canAfford = currentUser.points >= r.cost; const rIcon = r.icon || 'fa-solid fa-gift text-amber-500';
-    container.innerHTML += `
+    return `
         <div class="bg-card border border-borderline rounded-2xl p-4 flex flex-col items-center text-center shadow-sm relative overflow-hidden transition-all hover:border-primary/50">
             <div class="w-14 h-14 rounded-full bg-surface shadow-inner flex items-center justify-center mb-3 text-2xl text-primary"><i class="${rIcon}"></i></div>
             <h3 class="font-bold text-main text-sm mb-1 line-clamp-1">${r.reward_name}</h3>
             <div class="font-black text-sm mb-3 flex items-center gap-1 ${canAfford ? 'text-yellow-500' : 'text-muted'}"><i class="fa-solid fa-coins"></i> ${r.cost}</div>
             <button onclick="redeemReward('${r.id}', ${r.cost}, '${r.reward_name}')" class="w-full py-2.5 rounded-xl text-xs font-bold active-scale transition-all duration-300 ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105' : 'bg-surface text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>Đổi quà luôn</button>
         </div>`;
-  });
+  }).join('');
 }
 
 async function redeemReward(rewardId, cost, name) {
-  if (!confirm(`Dùng ${cost} điểm đổi [ ${name} ] ?`)) return;
+  if (!(await customConfirm(`Dùng ${cost} điểm đổi [ ${name} ] ?`, 'Xác nhận đổi quà'))) return;
   showLoading(true); const newPts = currentUser.points - cost;
   const { error } = await supabaseClient.from('users').update({ points: newPts }).eq('username', currentUser.username);
   if (error) { showLoading(false); return showToast('Lỗi DB', 'error'); }
@@ -745,21 +781,30 @@ function switchHistoryTab(tab) {
   document.getElementById('history-content-rewards').style.display = tab === 'rewards' ? 'block' : 'none';
 }
 
+const HISTORY_WINDOW_DAYS = 90;
+
 async function loadHistoryData() {
   showLoading(true);
 
   const filterSelect = document.getElementById('history-user-filter');
   const existingVal = filterSelect.value;
-  filterSelect.innerHTML = '';
+
+  // Fetch everything that doesn't depend on the selected filter in one round-trip.
+  let usersPromise = Promise.resolve({ data: null });
+  if (currentUser.role !== 'User') {
+    let usersQuery = supabaseClient.from('users').select('*');
+    if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
+    usersPromise = usersQuery;
+  }
+  const firstLogPromise = supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
+
+  const [{ data: usersData }, { data: firstLog }] = await Promise.all([usersPromise, firstLogPromise]);
 
   let usersList = [];
   if (currentUser.role === 'User') {
     filterSelect.innerHTML = `<option value="${currentUser.username}">Việc của tôi (${currentUser.name})</option>`;
     filterSelect.classList.remove('hidden');
   } else {
-    let usersQuery = supabaseClient.from('users').select('*');
-    if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
-    const { data: usersData } = await usersQuery;
     usersList = usersData || [];
     filterSelect.classList.remove('hidden');
     let html = '<option value="all">Tất cả thành viên</option>';
@@ -769,20 +814,7 @@ async function loadHistoryData() {
   }
 
   const filterUser = filterSelect.value || (currentUser.role === 'User' ? currentUser.username : 'all');
-
-  // Fetch user transactions
   const familyUsernames = usersList.length > 0 ? usersList.map(u => u.username) : [currentUser.username];
-  let transQuery = supabaseClient.from('transactions').select('*').order('created_at', { ascending: false });
-  if (filterUser !== 'all') transQuery = transQuery.eq('username', filterUser);
-  else transQuery = transQuery.in('username', familyUsernames);
-  const { data: trans } = await transQuery;
-
-  // Try to calculate missed tasks dynamically to mix into history
-  let rawTasksQuery = supabaseClient.from('tasks').select('*');
-  if (getFamilyId()) rawTasksQuery = rawTasksQuery.eq('family_id', getFamilyId());
-  const { data: rawTasks } = await rawTasksQuery;
-  const tasks = unpackTasks(rawTasks);
-  const { data: firstLog } = await supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
 
   let appStartDate = null;
   if (firstLog && firstLog.length > 0) {
@@ -790,7 +822,26 @@ async function loadHistoryData() {
     appStartDate.setHours(0, 0, 0, 0);
   }
 
-  const { data: logs } = await supabaseClient.from('task_logs').select('*').neq('status', 'Rejected');
+  // Bound history to a recent rolling window so it stays fast no matter how long
+  // the family has been using the app. Items older than this (and past the claim
+  // window) aren't actionable anyway.
+  const windowStart = new Date();
+  windowStart.setDate(windowStart.getDate() - HISTORY_WINDOW_DAYS);
+  windowStart.setHours(0, 0, 0, 0);
+  const effectiveStart = (appStartDate && appStartDate > windowStart) ? appStartDate : windowStart;
+
+  // Fetch transactions/tasks/logs (all bounded by the window) in parallel.
+  let transQuery = supabaseClient.from('transactions').select('*').gte('created_at', effectiveStart.toISOString()).order('created_at', { ascending: false });
+  if (filterUser !== 'all') transQuery = transQuery.eq('username', filterUser);
+  else transQuery = transQuery.in('username', familyUsernames);
+
+  let rawTasksQuery = supabaseClient.from('tasks').select('*');
+  if (getFamilyId()) rawTasksQuery = rawTasksQuery.eq('family_id', getFamilyId());
+
+  let logsQuery = supabaseClient.from('task_logs').select('*').neq('status', 'Rejected').gte('created_at', effectiveStart.toISOString());
+
+  const [{ data: trans }, { data: rawTasks }, { data: logs }] = await Promise.all([transQuery, rawTasksQuery, logsQuery]);
+  const tasks = unpackTasks(rawTasks);
 
   const logMap = {};
   if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id + '_' + l.username] = l.status);
@@ -872,11 +923,11 @@ async function loadHistoryData() {
     });
   }
 
-  // Prepare missed tasks items
-  if (appStartDate && tasks) {
+  // Prepare missed tasks items (bounded to the same rolling window as the queries above)
+  if (tasks) {
     const today = new Date();
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    for (let d = new Date(appStartDate); d <= today; d.setDate(d.getDate() + 1)) {
+    for (let d = new Date(effectiveStart); d <= today; d.setDate(d.getDate() + 1)) {
       const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
       if (dateStr >= todayStr) continue; // Only count past days
 
@@ -951,10 +1002,11 @@ async function loadHistoryData() {
   showLoading(false);
 
   // Render Points (Mix of Earn, Missed, adjusted, spend...)
-  const pContainer = document.getElementById('history-points-list'); pContainer.innerHTML = '';
+  const pContainer = document.getElementById('history-points-list');
   if (historyItems.length === 0) {
     pContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có lịch sử nào.</div>';
   } else {
+    const pHtml = [];
     historyItems.forEach(item => {
       const h = String(item.date.getHours()).padStart(2, '0');
       const m = String(item.date.getMinutes()).padStart(2, '0');
@@ -989,28 +1041,28 @@ async function loadHistoryData() {
          claimBtn = `<button onclick="confirmBonusReward('${item.id}', ${item.amount})" class="mt-2 w-full bg-primary/10 text-primary border border-primary/20 py-1.5 rounded-lg text-xs font-bold active-scale hover:bg-primary hover:text-white transition-colors flex items-center justify-center gap-1.5"><i class="fa-solid fa-gift"></i> Xác nhận nhận</button>`;
       }
 
-      pContainer.innerHTML += `
+      pHtml.push(`
             <div class="bg-card border border-borderline rounded-2xl p-0 shadow-sm flex flex-col gap-0 hover:border-primary/30 transition-all hover:shadow-md group relative overflow-hidden mb-2">
                 <div class="absolute inset-y-0 left-0 w-1 ${bgAcc} opacity-50"></div>
-                
+
                 <div class="flex items-stretch justify-between w-full">
                     <div class="flex flex-col items-center justify-center w-[76px] shrink-0 border-r border-borderline/50 pr-2 pl-3 py-3">
                         <div class="w-10 h-10 rounded-2xl ${iconBg} flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform mb-1.5"><i class="fa-solid ${icon}"></i></div>
                         <div class="text-[9px] font-black text-center leading-tight ${valClass} uppercase tracking-wider">${item.actionText}</div>
                     </div>
-                    
+
                     <div class="flex-1 min-w-0 pl-3 pr-2 py-3 flex flex-col justify-center">
                         ${filterUser === 'all' || item.userName === 'Toàn Đội' ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${item.userName}</div>` : ''}
                         <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug">${item.taskName}</div>
                         <div class="text-[10px] text-muted mt-1.5 flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</div>
                         ${claimBtn}
                     </div>
-                    
+
                     <div class="pr-3.5 py-3 flex items-center justify-end shrink-0">
                         <div class="font-black text-sm px-2.5 py-1.5 rounded-xl ${pillClass} border">${sign}${item.amount}</div>
                     </div>
                 </div>
-            </div>`;
+            </div>`);
     });
 
     if (filterUser !== 'all') {
@@ -1019,19 +1071,21 @@ async function loadHistoryData() {
         let uObj = usersList.find(u => u.username === filterUser);
         if (uObj) uPt = uObj.points;
       }
-      pContainer.innerHTML += `<div class="bg-primary/10 border border-primary/20 rounded-2xl p-4 shadow-sm flex justify-between mt-2">
+      pHtml.push(`<div class="bg-primary/10 border border-primary/20 rounded-2xl p-4 shadow-sm flex justify-between mt-2">
                 <span class="font-bold text-main text-sm">Tổng điểm của ${filterUser === currentUser.username ? 'bạn' : filterUser}:</span>
                 <span class="font-black text-primary text-base">${uPt}</span>
-            </div>`;
+            </div>`);
     }
+    pContainer.innerHTML = pHtml.join('');
   }
 
   // Render Rewards History
-  const rContainer = document.getElementById('history-rewards-list'); rContainer.innerHTML = '';
+  const rContainer = document.getElementById('history-rewards-list');
   const rewardItems = historyItems.filter(i => i.type === 'Spend');
   if (rewardItems.length === 0) {
     rContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa đổi món quà nào.</div>';
   } else {
+    const rHtml = [];
     rewardItems.forEach(item => {
       const dateStr = item.date.toLocaleDateString('vi-VN');
       
@@ -1052,7 +1106,7 @@ async function loadHistoryData() {
           statusBadge = `<span class="bg-success/10 text-success text-[10px] px-1.5 py-0.5 rounded border border-success/20 font-bold ml-2">Hoàn tất</span>`;
       }
 
-      rContainer.innerHTML += `
+      rHtml.push(`
             <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-start justify-between gap-3 hover:border-amber-500/30 transition-all hover:shadow-md group">
                 <div class="w-12 h-12 shrink-0 rounded-2xl bg-amber-500/10 flex items-center justify-center text-2xl text-amber-500 shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid fa-gift"></i></div>
                 <div class="flex-1 min-w-0 ml-1">
@@ -1062,8 +1116,9 @@ async function loadHistoryData() {
                     ${actionHtml}
                 </div>
                 <div class="font-black text-sm text-yellow-500 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-yellow-500/20 shadow-inner mt-1 self-start">-${item.amount}</div>
-            </div>`;
+            </div>`);
     });
+    rContainer.innerHTML = rHtml.join('');
   }
 }
 
@@ -1121,7 +1176,16 @@ async function loadReportData(startDate, endDate) {
 
   let usersQuery = supabaseClient.from('users').select('*');
   if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
-  const { data: users } = await usersQuery;
+
+  // Users must be known first to scope trans/logs by family username — but tasks
+  // and the app-start marker don't depend on it, so fetch those in parallel too,
+  // then fire the family-scoped queries in a second parallel batch.
+  let rawTasksQuery = supabaseClient.from('tasks').select('*');
+  if (getFamilyId()) rawTasksQuery = rawTasksQuery.eq('family_id', getFamilyId());
+  const firstLogQuery = supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
+
+  const [{ data: users }, { data: rawTasks }, { data: firstLog }] = await Promise.all([usersQuery, rawTasksQuery, firstLogQuery]);
+  const tasks = unpackTasks(rawTasks);
 
   const familyUsernames = (users || []).map(u => u.username);
 
@@ -1134,17 +1198,11 @@ async function loadReportData(startDate, endDate) {
   let logsQuery = supabaseClient.from('task_logs').select('*');
   if (familyUsernames.length > 0) logsQuery = logsQuery.in('username', familyUsernames);
 
-  const { data: trans } = await transQuery;
-  const { data: logs } = await logsQuery;
-  let rawTasksQuery = supabaseClient.from('tasks').select('*');
-  if (getFamilyId()) rawTasksQuery = rawTasksQuery.eq('family_id', getFamilyId());
-  const { data: rawTasks } = await rawTasksQuery;
-  const tasks = unpackTasks(rawTasks);
+  const [{ data: trans }, { data: logs }] = await Promise.all([transQuery, logsQuery]);
 
   showLoading(false);
   document.getElementById('report-period').innerText = `${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`;
 
-  const { data: firstLog } = await supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
   let appStartDate = null;
   if (firstLog && firstLog.length > 0) {
     appStartDate = new Date(firstLog[0].created_at);
@@ -1382,53 +1440,47 @@ function renderTaskReport() {
   document.getElementById('stat-missed-pen').innerText = missedTotal;
 
   const compContainer = document.getElementById('report-completed-container');
-  compContainer.innerHTML = '';
   const completedArr = Object.values(completedMap).filter(x => x.times > 0).sort((a, b) => b.times - a.times);
   if (completedArr.length === 0) {
     compContainer.innerHTML = '<div class="text-center text-muted text-[11px] py-4 bg-input rounded-2xl border border-dashed border-borderline">Chưa có việc nào hoàn thành.</div>';
   } else {
-    completedArr.forEach(t => {
-      compContainer.innerHTML += `
+    compContainer.innerHTML = completedArr.map(t => `
             <div class="bg-card rounded-2xl p-3 border border-borderline flex items-center justify-between shadow-sm hover:border-success/30 transition-all mb-2">
                 <div class="flex items-center gap-3">
                     <div class="w-11 h-11 rounded-[14px] bg-success/10 flex items-center justify-center text-success shadow-inner text-xl"><i class="${t.icon || 'fa-solid fa-check'}"></i></div>
                     <div><div class="font-bold text-main text-sm">${t.name}</div><div class="text-[11px] text-muted">Đã hoàn thành <span class="font-bold text-main">${t.times}</span> lần</div></div>
                 </div>
                 <div class="text-success font-black text-sm bg-success/10 px-2.5 py-1.5 rounded-lg border border-success/20">+${t.pts}</div>
-            </div>`;
-    });
+            </div>`).join('');
   }
 
   const missContainer = document.getElementById('report-missed-container');
-  missContainer.innerHTML = '';
   const missedArr = Object.values(missedMap).filter(x => x.times > 0).sort((a, b) => b.times - a.times);
   if (missedArr.length === 0) {
     missContainer.innerHTML = '<div class="text-center text-success text-[11px] py-4 bg-success/10 rounded-2xl border border-success/20 font-bold shadow-sm">Chưa có việc nào bị lỡ.</div>';
   } else {
-    missedArr.forEach(t => {
-      missContainer.innerHTML += `
+    missContainer.innerHTML = missedArr.map(t => `
             <div class="bg-card rounded-2xl p-3 border border-borderline flex items-center justify-between shadow-sm hover:border-red-500/30 transition-all mb-2">
                 <div class="flex items-center gap-3">
                     <div class="w-11 h-11 rounded-[14px] bg-red-500/10 flex items-center justify-center text-red-500 shadow-inner text-xl"><i class="${t.icon || 'fa-solid fa-xmark'}"></i></div>
                     <div><div class="font-bold text-main text-sm">${t.name}</div><div class="text-[11px] text-muted">Bị lỡ <span class="font-bold text-red-400">${t.times}</span> lần</div></div>
                 </div>
                 <div class="text-red-500 font-black text-sm bg-red-500/10 px-2.5 py-1.5 rounded-lg border border-red-500/20">-${t.pts}</div>
-            </div>`;
-    });
+            </div>`).join('');
   }
 }
 
 function renderLeaderboard(data) {
-  const container = document.getElementById('report-content-leaderboard'); container.innerHTML = '';
+  const container = document.getElementById('report-content-leaderboard');
 
   if (data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Chưa có dữ liệu.</div>';
-  data.forEach((user, index) => {
+  container.innerHTML = data.map((user, index) => {
     let rankIcon = `<div class="w-6 h-6 rounded-full bg-surface text-muted flex items-center justify-center text-xs font-bold">${index + 1}</div>`;
     if (index === 0) rankIcon = `<i class="fa-solid fa-crown text-yellow-500 text-2xl drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]"></i>`;
     else if (index === 1) rankIcon = `<i class="fa-solid fa-medal text-gray-300 text-xl"></i>`;
     else if (index === 2) rankIcon = `<i class="fa-solid fa-medal text-amber-600 text-xl"></i>`;
 
-    container.innerHTML += `
+    return `
         <div class="bg-card border ${user.username === currentUser.username ? 'border-primary shadow-md bg-primary/5' : 'border-borderline shadow-sm'} rounded-2xl p-4 flex items-center gap-4 hover:border-primary/30 transition-all">
             <div class="w-8 flex justify-center">${rankIcon}</div>
             <div class="flex-1">
@@ -1440,7 +1492,7 @@ function renderLeaderboard(data) {
                 <div class="text-[10px] font-bold text-red-500"><i class="fa-solid fa-arrow-trend-down mr-1 text-[10px]"></i>-${user.penalty}</div>
             </div>
         </div>`;
-  });
+  }).join('');
 }
 
 async function loadAdminData(type) {
@@ -1494,7 +1546,7 @@ async function loadAdminData(type) {
     resetBtn.style.display = (type === 'users' && isAdmin()) ? 'flex' : 'none';
 
     addBtn.onclick = () => openModal(type);
-    showLoading(true); let data = [];
+    showLoading(true); let data = []; let extraHtml = '';
     if (type === 'users') {
       let usersQuery = supabaseClient.from('users').select('*');
       if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
@@ -1522,8 +1574,7 @@ async function loadAdminData(type) {
       if (getFamilyId()) tasksQuery = tasksQuery.eq('family_id', getFamilyId());
       const res = await tasksQuery; data = unpackTasks(res.data || []).filter(t => t.frequency === 'Violation');
       // Add a special button to record a penalty using these types
-      const recordBtnHtml = `<button onclick="openPenaltyModal()" class="w-full bg-red-500 text-white font-bold py-3 rounded-xl mb-4 active-scale shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"><i class="fa-solid fa-gavel"></i> Ghi nhận phạt ngay</button>`;
-      document.getElementById('admin-list-container').innerHTML = recordBtnHtml;
+      extraHtml = `<button onclick="openPenaltyModal()" class="w-full bg-red-500 text-white font-bold py-3 rounded-xl mb-4 active-scale shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"><i class="fa-solid fa-gavel"></i> Ghi nhận phạt ngay</button>`;
     }
     else if (type === 'penalties') {
       addBtn.style.display = 'none'; // Use the record button instead
@@ -1539,10 +1590,9 @@ async function loadAdminData(type) {
           const u = (usersData || []).find(x => x.username === item.username);
           return {...item, user_name: u ? u.name : item.username};
       });
-      const recordBtnHtml = `<button onclick="openPenaltyModal()" class="w-full bg-red-500 text-white font-bold py-3 rounded-xl mb-4 active-scale shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"><i class="fa-solid fa-gavel"></i> Ghi nhận phạt ngay</button>`;
-      document.getElementById('admin-list-container').innerHTML = recordBtnHtml;
+      extraHtml = `<button onclick="openPenaltyModal()" class="w-full bg-red-500 text-white font-bold py-3 rounded-xl mb-4 active-scale shadow-lg shadow-red-500/20 flex items-center justify-center gap-2"><i class="fa-solid fa-gavel"></i> Ghi nhận phạt ngay</button>`;
     }
-    showLoading(false); renderAdminList(type, data);
+    showLoading(false); renderAdminList(type, data, extraHtml);
   }
   
   // Ensure "Back to menu" button is present
@@ -1563,14 +1613,14 @@ async function loadRewardApprovals() {
   const { data: transAll, error } = await transAllQuery;
   showLoading(false);
   
-  const container = document.getElementById('admin-list-container'); container.innerHTML = '';
+  const container = document.getElementById('admin-list-container');
 
   if (error) return showToast(error.message, 'error');
-  
+
   const trans = (transAll || []).filter(t => t.description && t.description.startsWith('[Chờ trao]'));
   if (trans.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Tuyệt vời! Không có quà nào chờ trao.</div>';
 
-  trans.forEach(item => {
+  container.innerHTML = trans.map(item => {
     let taskName = item.description.replace('[Chờ trao] Đổi quà: ', '').trim();
     let uName = item.username;
     if (usersData) {
@@ -1578,7 +1628,7 @@ async function loadRewardApprovals() {
         if (uObj && uObj.name) uName = uObj.name;
     }
 
-    container.innerHTML += `
+    return `
         <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-amber-500/50 transition-all mb-3">
             <div class="flex justify-between items-start mb-2">
                 <div class="flex items-start gap-3">
@@ -1595,7 +1645,7 @@ async function loadRewardApprovals() {
                 <button onclick="updateRewardStatus('${item.id}', '[Đã trao]')" class="w-full py-2.5 rounded-xl bg-primary text-white text-xs font-bold active-scale shadow-lg shadow-primary/30"><i class="fa-solid fa-hand-holding-heart mr-1.5"></i> Xác nhận đã trao quà</button>
             </div>
         </div>`;
-  });
+  }).join('');
 }
 
 async function updateRewardStatus(transactionId, newStatus) {
@@ -1640,7 +1690,7 @@ async function loadApprovals() {
       }
     });
   }
-  const container = document.getElementById('admin-list-container'); container.innerHTML = '';
+  const container = document.getElementById('admin-list-container');
 
   // Render toggle tabs
   const toggleHtml = `
@@ -1653,15 +1703,14 @@ async function loadApprovals() {
       </button>
     </div>
   `;
-  container.innerHTML = toggleHtml;
 
-  if (error) return showToast(error.message, 'error');
+  if (error) { container.innerHTML = toggleHtml; return showToast(error.message, 'error'); }
   if (!data || data.length === 0) {
-    container.innerHTML += `<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl w-full">${currentApprovalFilter === 'Pending Approval' ? 'Quá mượt! Không có việc chờ duyệt.' : 'Không có việc nào bị từ chối.'}</div>`;
+    container.innerHTML = toggleHtml + `<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl w-full">${currentApprovalFilter === 'Pending Approval' ? 'Quá mượt! Không có việc chờ duyệt.' : 'Không có việc nào bị từ chối.'}</div>`;
     return;
   }
 
-  data.forEach(item => {
+  const itemsHtml = data.map(item => {
     const taskDateFormatted = formatPeriodId(item.period_id);
     const dateObj = new Date(item.created_at);
     const timeStr = String(dateObj.getHours()).padStart(2, '0') + ':' + String(dateObj.getMinutes()).padStart(2, '0');
@@ -1674,7 +1723,7 @@ async function loadApprovals() {
       `<button onclick="approveTask('${item.id}', false, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}')" class="flex-1 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-bold active-scale">Từ chối</button>
        <button onclick="approveTask('${item.id}', true, '${item.username}', ${item.tasks?.points}, '${item.tasks?.task_name}', ${item.tasks?.calc_admin ?? true})" class="flex-1 py-2 rounded-xl bg-success text-white text-xs font-bold active-scale shadow-lg shadow-success/30">Duyệt & Cộng Điểm</button>`;
 
-    container.innerHTML += `
+    return `
         <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-primary/50 transition-all mb-3 w-full">
             <div class="flex justify-between items-start mb-2">
                 <div class="flex items-start gap-3">
@@ -1697,6 +1746,7 @@ async function loadApprovals() {
             </div>
         </div>`;
   });
+  container.innerHTML = toggleHtml + itemsHtml.join('');
 }
 
 async function approveTask(logId, isApproved, username, points, taskName, calcAdmin = true) {
@@ -1756,11 +1806,11 @@ async function approveTask(logId, isApproved, username, points, taskName, calcAd
   refreshUserPoints(); showLoading(false); showToast(isApproved ? 'Đã xử lý!' : 'Đã từ chối.', isApproved ? 'success' : 'error'); loadApprovals();
 }
 
-function renderAdminList(type, data) {
-  const container = document.getElementById('admin-list-container'); container.innerHTML = '';
-  if (data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Chưa có dữ liệu.</div>';
+function renderAdminList(type, data, extraHtml = '') {
+  const container = document.getElementById('admin-list-container');
+  if (data.length === 0) return container.innerHTML = extraHtml + '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Chưa có dữ liệu.</div>';
 
-  data.forEach(item => {
+  const itemsHtml = data.map(item => {
     let title = '', subtitle = '', id = '', prefixHTML = '', actionHTML = '';
     if (type === 'users') {
       id = item.username; title = item.name;
@@ -1809,7 +1859,7 @@ function renderAdminList(type, data) {
     }
 
     window[`editData_${id}`] = item;
-    const itemHtml = `
+    return `
         <div class="bg-card border border-borderline rounded-2xl p-4 flex justify-between items-center shadow-sm mb-3">
             <div class="flex gap-3 items-center">
                 ${prefixHTML}
@@ -1823,12 +1873,8 @@ function renderAdminList(type, data) {
                 ` : `<button onclick="deleteData('transactions', '${id}')" class="w-8 h-8 rounded-lg bg-red-500/10 text-red-400 flex items-center justify-center active-scale"><i class="fa-solid fa-trash text-xs"></i></button>`}
             </div>
         </div>`;
-    if (type === 'violations' || type === 'penalties') {
-      container.innerHTML += itemHtml;
-    } else {
-      container.innerHTML += itemHtml;
-    }
   });
+  container.innerHTML = extraHtml + itemsHtml.join('');
 }
 
 function handleFreqChange() {
@@ -2088,7 +2134,7 @@ async function saveData(type, id) {
 }
 
 async function deleteData(type, id) {
-  if (!confirm('Chắc chắn xoá luôn ?')) return;
+  if (!(await customConfirm('Chắc chắn xoá luôn ?', 'Xoá dữ liệu'))) return;
   showLoading(true); let error = null;
   if (type === 'users') { const res = await supabaseClient.from('users').delete().eq('username', id); error = res.error; }
   else if (type === 'tasks' || type === 'holidays') { const res = await supabaseClient.from('tasks').delete().eq('id', id); error = res.error; }
@@ -2153,16 +2199,15 @@ async function openGrantByRewardModal(rewardId, rewardName, points, preselectedU
   const { data: users } = await usersQuery;
 
   const container = document.getElementById('grant-user-list');
-  container.innerHTML = '';
 
   if (!users || users.length === 0) {
     container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Không có thành viên nào.</div>';
   } else {
-    users.forEach(u => {
+    container.innerHTML = users.map(u => {
       const avatarHtml = u.avatar && u.avatar.trim() !== ''
         ? `<img src="${u.avatar}" class="w-9 h-9 rounded-full object-cover">`
         : `<div class="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-purple-500 flex items-center justify-center text-white text-sm font-bold">${u.name.charAt(0)}</div>`;
-      container.innerHTML += `
+      return `
         <button onclick="grantBonusToUser('${u.username}', '${u.name.replace(/'/g, "\\'")}')" class="w-full flex items-center gap-3 p-3 bg-surface rounded-2xl border border-borderline hover:border-primary/40 hover:bg-primary/5 active-scale transition-all">
           ${avatarHtml}
           <div class="flex-1 text-left">
@@ -2171,7 +2216,7 @@ async function openGrantByRewardModal(rewardId, rewardName, points, preselectedU
           </div>
           <div class="text-primary text-xs font-bold"><i class="fa-solid fa-paper-plane"></i></div>
         </button>`;
-    });
+    }).join('');
   }
 
   document.getElementById('grant-bonus-modal').classList.remove('hidden');
@@ -2240,7 +2285,7 @@ async function confirmBonusReward(transactionId, amount) {
 }
 
 async function resetAllPoints() {
-  if (!confirm('CẢNH BÁO: Hành động này sẽ đưa ĐIỂM CỦA TẤT CẢ USER VỀ 0. Dữ liệu giao dịch cũ vẫn được giữ nhưng điểm hiện tại sẽ mất. Bạn chắc chắn chứ?')) return;
+  if (!(await customConfirm('Hành động này sẽ đưa ĐIỂM CỦA TẤT CẢ USER VỀ 0. Dữ liệu giao dịch cũ vẫn được giữ nhưng điểm hiện tại sẽ mất. Bạn chắc chắn chứ?', 'Cảnh báo: Reset điểm', 'Reset ngay'))) return;
   showLoading(true);
   let resetQuery = supabaseClient.from('users').select('username');
   if (getFamilyId()) resetQuery = resetQuery.eq('family_id', getFamilyId());
@@ -2260,31 +2305,33 @@ async function resetAllPoints() {
 
 async function openPenaltyModal() {
   showLoading(true);
-  const { data: users } = await supabaseClient.from('users').select('*').eq('family_id', getFamilyId());
-  const { data: violations } = await supabaseClient.from('tasks').select('*').eq('family_id', getFamilyId()).eq('frequency', 'Violation');
+  const [{ data: users }, { data: violations }] = await Promise.all([
+    supabaseClient.from('users').select('*').eq('family_id', getFamilyId()),
+    supabaseClient.from('tasks').select('*').eq('family_id', getFamilyId()).eq('frequency', 'Violation')
+  ]);
   showLoading(false);
 
   const typeSel = document.getElementById('pen-type');
-  typeSel.innerHTML = '<option value="custom">Lỗi khác (Tự nhập)</option>';
   window.penaltyDataMap = {};
   if (violations) {
-    violations.forEach(v => {
-      typeSel.innerHTML += `<option value="${v.id}">${v.task_name} (-${v.penalty} pts)</option>`;
+    typeSel.innerHTML = '<option value="custom">Lỗi khác (Tự nhập)</option>' + violations.map(v => {
       window.penaltyDataMap[v.id] = v;
-    });
+      return `<option value="${v.id}">${v.task_name} (-${v.penalty} pts)</option>`;
+    }).join('');
+  } else {
+    typeSel.innerHTML = '<option value="custom">Lỗi khác (Tự nhập)</option>';
   }
 
   const userList = document.getElementById('pen-users-list');
-  userList.innerHTML = '';
   if (users) {
-    users.forEach(u => {
-      userList.innerHTML += `
+    userList.innerHTML = users.map(u => `
                 <label class="flex items-center gap-3 p-2 hover:bg-surface rounded-lg cursor-pointer transition-colors">
                     <input type="checkbox" name="pen-user-checkbox" value="${u.username}" class="w-4 h-4 rounded border-borderline text-primary focus:ring-primary">
                     <span class="text-sm font-medium text-main">${u.name}</span>
                     <span class="text-[10px] text-muted ml-auto">${u.points} pts</span>
-                </label>`;
-    });
+                </label>`).join('');
+  } else {
+    userList.innerHTML = '';
   }
 
   document.getElementById('pen-amount').value = '';
@@ -2362,19 +2409,20 @@ async function saveBulkPenalty() {
 
 async function loadFamiliesData() {
   showLoading(true);
-  const { data: families } = await supabaseClient.from('families').select('*').order('created_at', { ascending: true });
-  const { data: allUsers } = await supabaseClient.from('users').select('username, name, role, family_id, points');
+  const [{ data: families }, { data: allUsers }] = await Promise.all([
+    supabaseClient.from('families').select('*').order('created_at', { ascending: true }),
+    supabaseClient.from('users').select('username, name, role, family_id, points')
+  ]);
   showLoading(false);
 
   const container = document.getElementById('admin-list-container');
-  container.innerHTML = '';
 
   if (!families || families.length === 0) {
     container.innerHTML = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Chưa có gia đình nào.</div>';
     return;
   }
 
-  families.forEach(f => {
+  container.innerHTML = families.map(f => {
     const members = (allUsers || []).filter(u => u.family_id === f.id);
     const totalMembers = members.length;
     const admins = members.filter(u => u.role === 'Admin' || u.role === 'Super Admin').length;
@@ -2384,7 +2432,7 @@ async function loadFamiliesData() {
 
     window[`familyData_${f.id}`] = f;
 
-    container.innerHTML += `
+    return `
       <div class="bg-card border ${isMyFamily ? 'border-primary shadow-md' : 'border-borderline'} rounded-2xl p-5 shadow-sm transition-all hover:border-primary/50 mb-3">
         <div class="flex justify-between items-start mb-4">
           <div class="flex items-center gap-3">
@@ -2417,7 +2465,7 @@ async function loadFamiliesData() {
         </div>
         ${!isMyFamily ? `<button onclick="copyTemplateTasks('${f.id}', '${f.family_name}')" class="w-full py-2 rounded-xl bg-surface text-muted text-[11px] font-bold active-scale hover:bg-primary/10 hover:text-primary transition-all border border-borderline"><i class="fa-solid fa-copy mr-1.5"></i>Copy công việc mẫu từ gia đình tôi</button>` : ''}
       </div>`;
-  });
+  }).join('');
 }
 
 function openFamilyModal(family = null) {
@@ -2519,7 +2567,7 @@ async function saveFamilyData(familyId) {
 }
 
 async function copyTemplateTasks(targetFamilyId, targetFamilyName, silent = false) {
-  if (!silent && !confirm(`Copy tất cả công việc mẫu sang "${targetFamilyName}"?`)) return;
+  if (!silent && !(await customConfirm(`Copy tất cả công việc mẫu sang "${targetFamilyName}"?`, 'Copy công việc mẫu'))) return;
   if (!silent) showLoading(true);
 
   // Get tasks from my family
@@ -2562,8 +2610,8 @@ async function copyTemplateTasks(targetFamilyId, targetFamilyName, silent = fals
 }
 
 async function deleteFamilyData(familyId) {
-  if (!confirm('CẢNH BÁO: Xoá gia đình sẽ xoá TẤT CẢ thành viên, công việc, phần thưởng, lịch sử của gia đình này. Bạn chắc chắn?')) return;
-  if (!confirm('Xác nhận lần cuối: KHÔNG THỂ hoàn tác. Tiếp tục?')) return;
+  if (!(await customConfirm('Xoá gia đình sẽ xoá TẤT CẢ thành viên, công việc, phần thưởng, lịch sử của gia đình này. Bạn chắc chắn?', 'Cảnh báo: Xoá gia đình', 'Tiếp tục'))) return;
+  if (!(await customConfirm('KHÔNG THỂ hoàn tác. Bạn có chắc chắn muốn xoá vĩnh viễn?', 'Xác nhận lần cuối', 'Xoá vĩnh viễn'))) return;
 
   showLoading(true);
   
@@ -2612,12 +2660,12 @@ const THEMES = [
 ];
 
 function openThemeModal() {
-  const container = document.getElementById('theme-options-container'); container.innerHTML = '';
+  const container = document.getElementById('theme-options-container');
   const currentMode = localStorage.getItem('housework_theme') || 'dark';
-  THEMES.forEach(t => {
+  container.innerHTML = THEMES.map(t => {
     const isSelected = currentMode === t.id;
     const premiumBadge = t.premium ? '<span class="text-[9px] font-bold bg-gradient-to-r from-blue-500 to-cyan-400 text-white px-1.5 py-0.5 rounded-full ml-2">PRO</span>' : '';
-    container.innerHTML += `
+    return `
         <div onclick="setAppTheme('${t.id}')" class="flex items-center justify-between p-4 rounded-xl border ${isSelected ? 'border-primary bg-primary/10' : 'border-borderline bg-input'} cursor-pointer active-scale mb-2 transition-all shadow-sm">
             <div class="flex items-center gap-4">
                 <div class="w-10 h-10 rounded-full flex items-center justify-center text-white shadow-md" style="background-color: ${t.primary};"><i class="fa-solid ${t.icon}"></i></div>
@@ -2628,7 +2676,7 @@ function openThemeModal() {
             </div>
             ${isSelected ? '<i class="fa-solid fa-circle-check text-primary text-xl"></i>' : ''}
         </div>`;
-  });
+  }).join('');
   document.getElementById('theme-modal').classList.remove('hidden'); document.getElementById('theme-modal').classList.add('flex');
 }
 

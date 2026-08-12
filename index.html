@@ -3,7 +3,7 @@
 
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>Quản lý Việc nhà</title>
   <link rel="icon" type="image/x-icon" href="favicon.ico">
   <script src="https://cdn.tailwindcss.com"></script>
@@ -439,6 +439,41 @@
       width: 0px;
       background: transparent;
     }
+
+    /* Skeleton loading animation */
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .skeleton-shimmer {
+      background: linear-gradient(90deg, var(--surface-bg) 25%, var(--input-bg) 50%, var(--surface-bg) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.5s ease-in-out infinite;
+    }
+
+    /* Custom confirm dialog */
+    .confirm-overlay {
+      transition: opacity 0.2s ease;
+    }
+    .confirm-dialog {
+      transform: scale(0.95);
+      opacity: 0;
+      transition: transform 0.2s ease, opacity 0.2s ease;
+    }
+    .confirm-dialog.show {
+      transform: scale(1);
+      opacity: 1;
+    }
+
+    /* Safe area support */
+    @supports (padding-bottom: env(safe-area-inset-bottom)) {
+      .glass-nav {
+        padding-bottom: calc(1.5rem + env(safe-area-inset-bottom));
+      }
+      body {
+        padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+      }
+    }
   </style>
   <script>
     const savedTheme = localStorage.getItem('housework_theme') || 'dark';
@@ -457,12 +492,12 @@
     class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 w-[90%] max-w-sm pointer-events-none"></div>
 
   <!-- THEME SELECTION MODAL -->
-  <div id="theme-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+  <div id="theme-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Chọn giao diện">
     <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col">
       <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
         <h3 class="font-bold text-main text-lg">Giao Diện (Themes)</h3>
         <button onclick="closeThemeModal()"
-          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+          class="w-10 h-10 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
             class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5">
@@ -472,12 +507,12 @@
   </div>
 
   <!-- AVATAR EDIT MODAL -->
-  <div id="avatar-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+  <div id="avatar-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Đổi ảnh đại diện">
     <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col">
       <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
         <h3 class="font-bold text-main text-lg">Đổi Ảnh Đại Diện</h3>
         <button onclick="closeAvatarModal()"
-          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+          class="w-10 h-10 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
             class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 flex flex-col items-center">
@@ -550,14 +585,14 @@
             class="transition-all duration-300 transform inline-block">0</span></div>
       </div>
       <button onclick="switchTab('guide')"
-        class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"
-        title="Hướng dẫn"><i class="fa-solid fa-circle-info text-xs"></i></button>
+        class="w-11 h-11 rounded-full bg-surface text-muted flex items-center justify-center active-scale"
+        title="Hướng dẫn" aria-label="Hướng dẫn sử dụng"><i class="fa-solid fa-circle-info text-sm"></i></button>
       <button onclick="openThemeModal()"
-        class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"
-        title="Giao diện"><i class="fa-solid fa-palette text-xs"></i></button>
+        class="w-11 h-11 rounded-full bg-surface text-muted flex items-center justify-center active-scale"
+        title="Giao diện" aria-label="Đổi giao diện"><i class="fa-solid fa-palette text-sm"></i></button>
       <button onclick="handleLogout()"
-        class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
-          class="fa-solid fa-right-from-bracket text-xs"></i></button>
+        class="w-11 h-11 rounded-full bg-surface text-muted flex items-center justify-center active-scale"
+        aria-label="Đăng xuất"><i class="fa-solid fa-right-from-bracket text-sm"></i></button>
     </div>
   </header>
 
@@ -672,7 +707,10 @@
 
     <!-- VIEW: HISTORY -->
     <section id="view-history" class="view-section hidden">
-      <h2 class="text-xl font-bold text-main mb-4">Lịch sử hoạt động</h2>
+      <div class="flex items-center justify-between mb-4 gap-2">
+        <h2 class="text-xl font-bold text-main">Lịch sử hoạt động</h2>
+        <span class="bg-surface text-muted text-[10px] px-2.5 py-1 rounded-full font-medium shrink-0" title="Chỉ hiển thị lịch sử trong 90 ngày gần nhất để tải nhanh hơn">90 ngày gần nhất</span>
+      </div>
       <div class="mb-4">
         <select id="history-user-filter" onchange="loadHistoryData()"
           class="w-full bg-input border border-borderline rounded-xl px-4 py-3 text-main text-sm font-bold outline-none shadow-sm cursor-pointer hidden"></select>
@@ -890,13 +928,13 @@
   </nav>
 
   <!-- ADMIN MODAL -->
-  <div id="admin-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4">
+  <div id="admin-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Quản trị">
     <div
       class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col max-h-[90vh]">
       <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
         <h3 id="modal-title" class="font-bold text-main text-lg">Thêm/Sửa</h3>
         <button onclick="closeModal()"
-          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+          class="w-10 h-10 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
             class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="modal-body" class="p-5 overflow-y-auto"></div>
@@ -907,11 +945,11 @@
   </div>
 
   <!-- CLAIM MODAL -->
-  <div id="claim-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] hidden items-center justify-center p-4">
+  <div id="claim-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Claim công việc">
     <div class="bg-card w-full max-w-sm rounded-3xl shadow-2xl border border-borderline overflow-hidden flex flex-col">
       <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
         <h3 class="font-bold text-main text-lg"><i class="fa-solid fa-rotate-left mr-2"></i>Claim công việc</h3>
-        <button onclick="closeClaimModal()" class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i class="fa-solid fa-xmark"></i></button>
+        <button onclick="closeClaimModal()" class="w-10 h-10 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5">
         <p id="claim-task-info" class="font-bold text-main mb-2">Tên Task - Ngày</p>
@@ -936,7 +974,7 @@
       <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
         <h3 class="font-bold text-main text-lg">Cộng/Trừ Điểm</h3>
         <button onclick="closeAdjustModal()"
-          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+          class="w-10 h-10 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
             class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 overflow-y-auto">
@@ -978,7 +1016,7 @@
       <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
         <h3 class="font-bold text-main text-lg"><i class="fa-solid fa-gift text-primary mr-2"></i> Trao Thưởng Điểm</h3>
         <button onclick="closeGrantBonusModal()"
-          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+          class="w-10 h-10 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
             class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 overflow-y-auto">
@@ -1001,7 +1039,7 @@
       <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
         <h3 class="font-bold text-main text-lg">Ghi Nhận Phạt Điểm</h3>
         <button onclick="closePenaltyModal()"
-          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+          class="w-10 h-10 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
             class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="p-5 overflow-y-auto space-y-4">
@@ -1055,7 +1093,7 @@
       <div class="p-5 border-b border-borderline flex justify-between items-center bg-input">
         <h3 id="family-modal-title" class="font-bold text-main text-lg">Tạo Gia Đình Mới</h3>
         <button onclick="closeFamilyModal()"
-          class="w-8 h-8 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
+          class="w-10 h-10 rounded-full bg-surface text-muted flex items-center justify-center active-scale"><i
             class="fa-solid fa-xmark"></i></button>
       </div>
       <div id="family-modal-body" class="p-5 overflow-y-auto"></div>
@@ -1066,7 +1104,22 @@
     </div>
   </div>
 
-  <script src="app.js?v=2.6"></script>
+  <!-- CUSTOM CONFIRM DIALOG -->
+  <div id="custom-confirm" class="confirm-overlay fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] hidden items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Xác nhận">
+    <div class="confirm-dialog bg-card w-full max-w-xs rounded-3xl shadow-2xl border border-borderline overflow-hidden">
+      <div class="p-6 text-center">
+        <div id="confirm-icon" class="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto mb-4 text-2xl"><i class="fa-solid fa-triangle-exclamation"></i></div>
+        <h3 id="confirm-title" class="font-bold text-main text-lg mb-2">Xác nhận</h3>
+        <p id="confirm-message" class="text-sm text-muted">Bạn có chắc chắn muốn thực hiện?</p>
+      </div>
+      <div class="flex border-t border-borderline">
+        <button id="confirm-cancel" class="flex-1 py-4 text-sm font-bold text-muted border-r border-borderline active-scale hover:bg-surface transition-colors">Huỷ</button>
+        <button id="confirm-ok" class="flex-1 py-4 text-sm font-bold text-red-500 active-scale hover:bg-red-500/10 transition-colors">Xác nhận</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=3.0"></script>
 </body>
 
 </html>
