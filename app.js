@@ -257,6 +257,26 @@ function handleLogout() {
   document.getElementById('login-screen').style.display = 'flex';
 }
 
+function toggleHeaderMenu() {
+  const dropdown = document.getElementById('header-menu-dropdown');
+  const btn = document.getElementById('header-menu-btn');
+  const willShow = dropdown.classList.contains('hidden');
+  dropdown.classList.toggle('hidden', !willShow);
+  btn.setAttribute('aria-expanded', String(willShow));
+}
+
+function closeHeaderMenu() {
+  document.getElementById('header-menu-dropdown').classList.add('hidden');
+  document.getElementById('header-menu-btn').setAttribute('aria-expanded', 'false');
+}
+
+document.addEventListener('click', function (e) {
+  const dropdown = document.getElementById('header-menu-dropdown');
+  const btn = document.getElementById('header-menu-btn');
+  if (!dropdown || dropdown.classList.contains('hidden')) return;
+  if (!dropdown.contains(e.target) && !btn.contains(e.target)) closeHeaderMenu();
+});
+
 function updateAvatarHeader() {
   const imgEL = document.getElementById('user-avatar-img'); const txtEL = document.getElementById('user-avatar-text');
   if (currentUser.avatar && currentUser.avatar.trim() !== '') {
