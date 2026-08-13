@@ -1123,28 +1123,8 @@ async function loadHistoryData() {
 }
 
 function switchReportTab(tab) {
+  // Leaderboard is now always visible on top, no tab switching needed
   currentReportTab = tab;
-
-  const rTTasks = document.getElementById('rtab-tasks');
-  const rTLeaderboard = document.getElementById('rtab-leaderboard');
-  if (tab === 'tasks') {
-    rTTasks.className = 'flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary transition-colors';
-    rTLeaderboard.className = 'flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent transition-colors';
-  } else {
-    rTTasks.className = 'flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent transition-colors';
-    rTLeaderboard.className = 'flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary transition-colors';
-  }
-
-  const rcTasks = document.getElementById('report-content-tasks');
-  const rcLeaderboard = document.getElementById('report-content-leaderboard');
-
-  if (tab === 'tasks') {
-    rcTasks.classList.remove('hidden');
-    rcLeaderboard.classList.add('hidden');
-  } else {
-    rcTasks.classList.add('hidden');
-    rcLeaderboard.classList.remove('hidden');
-  }
 }
 
 
@@ -1473,25 +1453,48 @@ function renderTaskReport() {
 function renderLeaderboard(data) {
   const container = document.getElementById('report-content-leaderboard');
 
-  if (data.length === 0) return container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Chưa có dữ liệu.</div>';
-  container.innerHTML = data.map((user, index) => {
-    let rankIcon = `<div class="w-6 h-6 rounded-full bg-surface text-muted flex items-center justify-center text-xs font-bold">${index + 1}</div>`;
-    if (index === 0) rankIcon = `<i class="fa-solid fa-crown text-yellow-500 text-2xl drop-shadow-[0_0_8px_rgba(234,179,8,0.5)]"></i>`;
-    else if (index === 1) rankIcon = `<i class="fa-solid fa-medal text-gray-300 text-xl"></i>`;
-    else if (index === 2) rankIcon = `<i class="fa-solid fa-medal text-amber-600 text-xl"></i>`;
-
-    return `
-        <div class="bg-card border ${user.username === currentUser.username ? 'border-primary shadow-md bg-primary/5' : 'border-borderline shadow-sm'} rounded-2xl p-4 flex items-center gap-4 hover:border-primary/30 transition-all">
-            <div class="w-8 flex justify-center">${rankIcon}</div>
+  if (!data || data.length === 0) { container.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có dữ liệu.</div>'; return; }
+  
+  // Sort by currentPoints descending for the always-visible leaderboard
+  const sorted = [...data].sort((a, b) => b.currentPoints - a.currentPoints);
+  
+  container.innerHTML = sorted.map((user, index) => {
+    const isMe = user.username === currentUser.username;
+    const score = user.currentPoints;
+    
+    // Top 3 get special styling
+    if (index === 0) {
+      return `
+        <div class="bg-gradient-to-r from-yellow-500/10 to-amber-500/10 border-2 border-yellow-500/30 rounded-2xl p-4 flex items-center gap-4 shadow-lg shadow-yellow-500/10 ${isMe ? 'ring-2 ring-primary ring-offset-2 ring-offset-[var(--bg-dark)]' : ''}">
+            <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/30"><i class="fa-solid fa-crown text-xl"></i></div>
             <div class="flex-1">
-                <div class="font-bold text-main text-sm">${user.name} ${user.username === currentUser.username ? '<span class="text-primary text-[10px] ml-1 bg-primary/10 px-1 rounded font-black border border-primary/20">(Bạn)</span>' : ''}</div>
-                <div class="text-[11px] text-muted">Hiện có: <span class="text-primary font-bold">${user.currentPoints}</span> pts</div>
+                <div class="font-black text-main text-base">${user.name} ${isMe ? '<span class="text-primary text-[10px] ml-1 bg-primary/10 px-1.5 py-0.5 rounded-full font-black border border-primary/20">(Bạn)</span>' : ''}</div>
+                <div class="text-xs text-muted mt-0.5">Hạng 1 · <span class="text-success font-bold">+${user.earned}</span> <span class="text-red-500 font-bold">-${user.penalty}</span></div>
             </div>
-            <div class="text-right space-y-1 bg-input px-3 py-1.5 rounded-lg border border-borderline">
-                <div class="text-xs text-success font-bold"><i class="fa-solid fa-arrow-trend-up mr-1 text-[10px]"></i>+${user.earned}</div>
-                <div class="text-[10px] font-bold text-red-500"><i class="fa-solid fa-arrow-trend-down mr-1 text-[10px]"></i>-${user.penalty}</div>
-            </div>
+            <div class="text-right"><div class="text-2xl font-black text-yellow-500">${score}</div><div class="text-[10px] text-muted font-bold">điểm</div></div>
         </div>`;
+    } else if (index <= 2) {
+      const medalColor = index === 1 ? 'text-gray-300' : 'text-amber-600';
+      const bgAccent = index === 1 ? 'bg-gray-500/5 border-gray-500/20' : 'bg-amber-600/5 border-amber-600/20';
+      return `
+        <div class="${bgAccent} border rounded-2xl p-3.5 flex items-center gap-3 ${isMe ? 'ring-2 ring-primary ring-offset-1 ring-offset-[var(--bg-dark)]' : ''}">
+            <div class="w-9 h-9 rounded-xl bg-surface flex items-center justify-center"><i class="fa-solid fa-medal ${medalColor} text-lg"></i></div>
+            <div class="flex-1">
+                <div class="font-bold text-main text-sm">${user.name} ${isMe ? '<span class="text-primary text-[10px] ml-1 bg-primary/10 px-1 rounded font-black border border-primary/20">(Bạn)</span>' : ''}</div>
+                <div class="text-[10px] text-muted">Hạng ${index + 1} · <span class="text-success font-bold">+${user.earned}</span> <span class="text-red-500 font-bold">-${user.penalty}</span></div>
+            </div>
+            <div class="font-black text-base text-main">${score}<span class="text-[10px] text-muted ml-0.5">pts</span></div>
+        </div>`;
+    } else {
+      return `
+        <div class="bg-card border ${isMe ? 'border-primary bg-primary/5' : 'border-borderline'} rounded-2xl p-3 flex items-center gap-3">
+            <div class="w-7 h-7 rounded-full bg-surface text-muted flex items-center justify-center text-xs font-bold">${index + 1}</div>
+            <div class="flex-1">
+                <div class="font-bold text-main text-sm">${user.name} ${isMe ? '<span class="text-primary text-[10px] ml-1 bg-primary/10 px-1 rounded font-black border border-primary/20">(Bạn)</span>' : ''}</div>
+            </div>
+            <div class="font-black text-sm text-main">${score}<span class="text-[10px] text-muted ml-0.5">pts</span></div>
+        </div>`;
+    }
   }).join('');
 }
 
@@ -1596,7 +1599,7 @@ async function loadAdminData(type) {
   }
   
   // Ensure "Back to menu" button is present
-  const backBtnHtml = `<button onclick="loadAdminData(null)" class="flex items-center gap-2 text-xs font-bold text-muted mb-4 active-scale"><i class="fa-solid fa-arrow-left"></i> Quay lại menu quản trị</button>`;
+  const backBtnHtml = `<button onclick="loadAdminData(null)" class="flex items-center gap-2 text-sm font-bold text-main mb-4 active-scale bg-card border border-borderline rounded-2xl px-4 py-3 w-full shadow-sm hover:border-primary/30 transition-all"><i class="fa-solid fa-arrow-left text-primary mr-1"></i> Quay lại menu quản trị</button>`;
   if (!listContainer.innerHTML.includes('Quay lại menu quản trị')) {
     listContainer.innerHTML = backBtnHtml + listContainer.innerHTML;
   }
@@ -1608,44 +1611,86 @@ async function loadRewardApprovals() {
   if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
   const { data: usersData } = await usersQuery;
   const familyUsernames = (usersData || []).map(u => u.username);
+  
+  // Fetch pending reward deliveries AND point reward items in parallel
   let transAllQuery = supabaseClient.from('transactions').select('*').eq('type', 'Spend').order('created_at', { ascending: false });
   if (familyUsernames.length > 0) transAllQuery = transAllQuery.in('username', familyUsernames);
-  const { data: transAll, error } = await transAllQuery;
+  
+  let pointRewardsQuery = supabaseClient.from('rewards').select('*').is('is_point_reward', true);
+  if (getFamilyId()) pointRewardsQuery = pointRewardsQuery.eq('family_id', getFamilyId());
+  
+  const [{ data: transAll, error }, { data: pointRewards }] = await Promise.all([transAllQuery, pointRewardsQuery]);
   showLoading(false);
   
   const container = document.getElementById('admin-list-container');
-
   if (error) return showToast(error.message, 'error');
 
+  // Section 1: Point Rewards (Trao thưởng điểm)
+  let pointRewardsHtml = '';
+  if (pointRewards && pointRewards.length > 0) {
+    pointRewardsHtml = `
+      <div class="mb-6">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-primary to-purple-500 flex items-center justify-center text-white text-lg shadow-lg shadow-primary/30"><i class="fa-solid fa-gift"></i></div>
+          <div>
+            <h3 class="font-black text-main text-base">Trao thưởng điểm</h3>
+            <p class="text-[10px] text-muted">Chọn gói thưởng để trao cho thành viên</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          ${pointRewards.map(r => `
+            <button onclick="openGrantByRewardModal('${r.id}', '${r.reward_name.replace(/'/g, "\\'")}', ${r.cost})" 
+              class="bg-gradient-to-br from-primary/5 to-purple-500/5 border-2 border-primary/20 rounded-2xl p-4 text-center active-scale hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 transition-all group">
+              <div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-2 text-2xl group-hover:scale-110 transition-transform"><i class="${r.icon || 'fa-solid fa-gift'} text-primary"></i></div>
+              <div class="font-bold text-main text-sm mb-1">${r.reward_name}</div>
+              <div class="text-primary font-black text-base">+${r.cost} pts</div>
+              <div class="text-[10px] text-muted mt-1"><i class="fa-solid fa-paper-plane mr-1"></i>Bấm để trao</div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+      <div class="relative my-5">
+        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-borderline"></div></div>
+        <div class="relative flex justify-center"><span class="bg-[var(--bg-dark)] px-3 text-[10px] font-bold text-muted uppercase tracking-wider">Quà đang chờ trao</span></div>
+      </div>`;
+  }
+
+  // Section 2: Pending physical reward deliveries  
   const trans = (transAll || []).filter(t => t.description && t.description.startsWith('[Chờ trao]'));
-  if (trans.length === 0) return container.innerHTML = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Tuyệt vời! Không có quà nào chờ trao.</div>';
+  
+  let pendingHtml = '';
+  if (trans.length === 0) {
+    pendingHtml = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl flex flex-col items-center gap-2"><i class="fa-solid fa-check-circle text-success text-2xl"></i>Tuyệt vời! Không có quà nào chờ trao.</div>';
+  } else {
+    pendingHtml = trans.map(item => {
+      let taskName = item.description.replace('[Chờ trao] Đổi quà: ', '').trim();
+      let uName = item.username;
+      if (usersData) {
+          let uObj = usersData.find(u => u.username === item.username);
+          if (uObj && uObj.name) uName = uObj.name;
+      }
 
-  container.innerHTML = trans.map(item => {
-    let taskName = item.description.replace('[Chờ trao] Đổi quà: ', '').trim();
-    let uName = item.username;
-    if (usersData) {
-        let uObj = usersData.find(u => u.username === item.username);
-        if (uObj && uObj.name) uName = uObj.name;
-    }
+      return `
+          <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-amber-500/50 transition-all mb-3">
+              <div class="flex justify-between items-start mb-2">
+                  <div class="flex items-start gap-3">
+                      <div class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="fa-solid fa-gift"></i></div>
+                      <div>
+                          <h4 class="font-bold text-main text-sm max-w-[150px] leading-tight mb-1">${taskName}</h4>
+                          <div class="text-xs text-muted">Người nhận: <span class="text-main font-bold">${uName}</span></div>
+                          <div class="text-[10px] text-muted mt-1"><i class="fa-regular fa-clock"></i> ${new Date(item.created_at).toLocaleDateString('vi-VN')}</div>
+                      </div>
+                  </div>
+                  <div class="text-yellow-500 font-black text-sm bg-amber-500/10 px-2 py-1 rounded border border-yellow-500/20">-${item.amount}</div>
+              </div>
+              <div class="mt-4">
+                  <button onclick="updateRewardStatus('${item.id}', '[Đã trao]')" class="w-full py-2.5 rounded-xl bg-primary text-white text-xs font-bold active-scale shadow-lg shadow-primary/30"><i class="fa-solid fa-hand-holding-heart mr-1.5"></i> Xác nhận đã trao quà</button>
+              </div>
+          </div>`;
+    }).join('');
+  }
 
-    return `
-        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-amber-500/50 transition-all mb-3">
-            <div class="flex justify-between items-start mb-2">
-                <div class="flex items-start gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="fa-solid fa-gift"></i></div>
-                    <div>
-                        <h4 class="font-bold text-main text-sm max-w-[150px] leading-tight mb-1">${taskName}</h4>
-                        <div class="text-xs text-muted">Người nhận: <span class="text-main font-bold">${uName}</span></div>
-                        <div class="text-[10px] text-muted mt-1"><i class="fa-regular fa-clock"></i> ${new Date(item.created_at).toLocaleDateString('vi-VN')}</div>
-                    </div>
-                </div>
-                <div class="text-yellow-500 font-black text-sm bg-amber-500/10 px-2 py-1 rounded border border-yellow-500/20">-${item.amount}</div>
-            </div>
-            <div class="mt-4">
-                <button onclick="updateRewardStatus('${item.id}', '[Đã trao]')" class="w-full py-2.5 rounded-xl bg-primary text-white text-xs font-bold active-scale shadow-lg shadow-primary/30"><i class="fa-solid fa-hand-holding-heart mr-1.5"></i> Xác nhận đã trao quà</button>
-            </div>
-        </div>`;
-  }).join('');
+  container.innerHTML = pointRewardsHtml + pendingHtml;
 }
 
 async function updateRewardStatus(transactionId, newStatus) {
@@ -1841,9 +1886,7 @@ function renderAdminList(type, data, extraHtml = '') {
       let badge = item.is_point_reward ? ' <span class="bg-primary/10 text-primary px-1.5 rounded text-[10px]">🎁 Thưởng điểm</span>' : '';
       subtitle = `<span class="text-yellow-500 font-bold">${item.cost} pts</span>${badge}`;
       prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-gift'}"></i></div>`;
-      if (item.is_point_reward) {
-        actionHTML = `<button onclick="openGrantByRewardModal('${item.id}', '${item.reward_name.replace(/'/g, "\\'")}', ${item.cost})" class="px-3 py-1.5 rounded-xl bg-primary text-white text-xs font-bold active-scale shadow-md shadow-primary/30 flex items-center gap-1.5 mr-1"><i class="fa-solid fa-paper-plane text-[10px]"></i> Trao</button>`;
-      }
+      // Point reward granting is now done from 'Trao quà' tab, not here
     }
     else if (type === 'violations') {
       id = item.id; title = item.task_name;
@@ -2244,8 +2287,14 @@ async function grantBonusToUser(username, userName) {
   showLoading(false);
   if (error) return showToast(error.message, 'error');
 
-  showToast(`Đã trao "${window.currentGrantRewardName}" cho ${userName}! Chờ xác nhận.`, 'mega-success');
+  showToast(`🎉 Đã trao "${window.currentGrantRewardName}" (+${window.currentGrantPoints} pts) cho ${userName}!`, 'mega-success');
+  // Fire confetti for celebration
+  if (typeof confetti === 'function') {
+    confetti({ particleCount: 80, spread: 70, origin: { y: 0.7 } });
+  }
   closeGrantBonusModal();
+  // Refresh the Trao quà tab if it's currently open
+  if (currentAdminType === 'reward_approvals') loadAdminData('reward_approvals');
 }
 
 async function confirmBonusReward(transactionId, amount) {
@@ -2279,7 +2328,13 @@ async function confirmBonusReward(transactionId, amount) {
   }
   
   showLoading(false);
-  showToast('Đã nhận thưởng thành công!', 'mega-success');
+  showToast('\ud83c\udf89 Ch\u00fac m\u1eebng! B\u1ea1n \u0111\u00e3 nh\u1eadn \u0111\u01b0\u1ee3c +' + amount + ' \u0111i\u1ec3m th\u01b0\u1edfng!', 'mega-success');
+  // Fire confetti celebration for the recipient!
+  if (typeof confetti === 'function') {
+    confetti({ particleCount: 120, spread: 100, origin: { y: 0.6 } });
+    setTimeout(() => confetti({ particleCount: 60, angle: 60, spread: 55, origin: { x: 0 } }), 250);
+    setTimeout(() => confetti({ particleCount: 60, angle: 120, spread: 55, origin: { x: 1 } }), 400);
+  }
   refreshUserPoints();
   loadHistoryData();
 }
@@ -2703,7 +2758,7 @@ function renderThemeAdmin() {
   const currentMode = localStorage.getItem('housework_theme') || 'dark';
   const currentThemeObj = THEMES.find(t => t.id === currentMode) || THEMES[0];
 
-  let html = `<button onclick="loadAdminData(null)" class="flex items-center gap-2 text-xs font-bold text-muted mb-4 active-scale"><i class="fa-solid fa-arrow-left"></i> Quay lại menu quản trị</button>`;
+  let html = `<button onclick="loadAdminData(null)" class="flex items-center gap-2 text-sm font-bold text-main mb-4 active-scale bg-card border border-borderline rounded-2xl px-4 py-3 w-full shadow-sm hover:border-primary/30 transition-all"><i class="fa-solid fa-arrow-left text-primary mr-1"></i> Quay lại menu quản trị</button>`;
 
   // Header
   html += `
@@ -2848,7 +2903,7 @@ function renderSettingsAdmin() {
   var schedChk = familySettings.schedule_enabled ? 'checked' : '';
 
   var html = '<div class="mb-4">' +
-    '<h3 class="font-black text-main text-lg mb-4"><i class="fa-solid fa-gear text-primary mr-2"></i>Cài Đặt Tính Năng</h3>' +
+    '<h3 class="font-black text-main text-lg mb-4"><i class="fa-solid fa-calendar-week text-primary mr-2"></i>Quản Lý Lịch Tuần</h3>' +
     '<div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm space-y-5">' +
     
     '<div>' +

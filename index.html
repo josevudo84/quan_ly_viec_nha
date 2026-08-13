@@ -635,7 +635,25 @@
 
     <!-- VIEW: REPORTS -->
     <section id="view-reports" class="view-section hidden">
-      <h2 class="text-xl font-bold text-main mb-4">Báo cáo & Thống kê</h2>
+      <!-- LEADERBOARD - Always visible on top -->
+      <div class="mb-6">
+        <div class="flex items-center gap-2 mb-4">
+          <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-yellow-400 to-amber-500 flex items-center justify-center text-white text-lg shadow-lg shadow-amber-500/30"><i class="fa-solid fa-trophy"></i></div>
+          <div>
+            <h2 class="text-lg font-black text-main">Bảng Xếp Hạng</h2>
+            <div class="text-[10px] text-muted font-medium">Xếp hạng theo tổng điểm hiện tại</div>
+          </div>
+        </div>
+        <div id="report-content-leaderboard" class="space-y-2"></div>
+      </div>
+
+      <!-- DIVIDER -->
+      <div class="relative my-6">
+        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-borderline"></div></div>
+        <div class="relative flex justify-center"><span style="background: var(--bg-dark)" class="px-3 text-xs font-bold text-muted uppercase tracking-wider"><i class="fa-solid fa-chart-pie mr-1"></i>Thống kê công việc</span></div>
+      </div>
+
+      <!-- TASK STATS -->
       <div class="flex gap-2 overflow-x-auto pb-2 mb-4 hide-scrollbar">
         <button onclick="loadReport('this_week')" id="filter-this_week"
           class="report-filter px-4 py-2 rounded-xl text-xs font-bold active-scale whitespace-nowrap bg-primary text-white">Tuần
@@ -665,15 +683,8 @@
               class="fa-solid fa-magnifying-glass text-sm"></i></button>
         </div>
       </div>
-      <div class="text-center mb-6"><span id="report-period"
+      <div class="text-center mb-4"><span id="report-period"
           class="bg-surface text-muted text-[11px] px-3 py-1 rounded-full font-medium shadow-inner">Đang tải...</span>
-      </div>
-
-      <div class="flex border-b border-borderline mb-5">
-        <button id="rtab-tasks" onclick="switchReportTab('tasks')"
-          class="flex-1 py-2 text-sm font-bold text-primary border-b-2 border-primary">Công việc</button>
-        <button id="rtab-leaderboard" onclick="switchReportTab('leaderboard')"
-          class="flex-1 py-2 text-sm font-bold text-muted border-b-2 border-transparent">Bảng Xếp Hạng</button>
       </div>
       <div id="report-content-tasks">
         <div class="mb-4">
@@ -702,7 +713,6 @@
             class="fa-solid fa-heart-crack text-red-500"></i> Việc bị trừ điểm (Chưa xong)</h3>
         <div id="report-missed-container" class="space-y-3"></div>
       </div>
-      <div id="report-content-leaderboard" class="space-y-3 hidden"></div>
     </section>
 
     <!-- VIEW: HISTORY -->
@@ -795,8 +805,8 @@
         </button>
         <button id="admin-tab-settings" onclick="loadAdminData('settings')"
           class="flex flex-col items-center justify-center p-4 rounded-2xl bg-card border border-borderline text-muted active-scale gap-2">
-          <i class="fa-solid fa-gear text-xl text-gray-400"></i>
-          <span class="text-[10px] font-bold">Cài đặt</span>
+          <i class="fa-solid fa-calendar-week text-xl text-indigo-500"></i>
+          <span class="text-[10px] font-bold">QL Lịch tuần</span>
         </button>
       </div>
       <div id="admin-list-container" class="space-y-3"></div>
