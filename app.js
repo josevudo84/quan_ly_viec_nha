@@ -860,7 +860,7 @@ function switchHistoryTab(tab) {
   document.getElementById('history-content-rewards').style.display = tab === 'rewards' ? 'block' : 'none';
 }
 
-const HISTORY_WINDOW_DAYS = 90;
+const HISTORY_WINDOW_DAYS = 30;
 
 async function loadHistoryData(force = false) {
   const filterSelect = document.getElementById('history-user-filter');
@@ -868,7 +868,6 @@ async function loadHistoryData(force = false) {
   const filterUser = filterSelect.value || (currentUser.role === 'User' ? currentUser.username : 'all');
 
   if (!force && _historyCache && _historyCacheFilter === filterUser) {
-    historyItems = _historyCache;
     return renderHistoryTabItems();
   }
 
@@ -1091,6 +1090,7 @@ function renderHistoryTabItems() {
   const filterSelect = document.getElementById('history-user-filter');
   const filterUser = filterSelect.value || (currentUser.role === 'User' ? currentUser.username : 'all');
   const usersList = window._lastHistoryUsersList || [];
+  const historyItems = _historyCache || [];
   
   // Render Points (Mix of Earn, Missed, adjusted, spend...)
   const pContainer = document.getElementById('history-points-list');
