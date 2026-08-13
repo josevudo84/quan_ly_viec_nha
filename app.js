@@ -852,7 +852,6 @@ async function loadCustomReport() {
   loadReportData(new Date(start), new Date(end + 'T23:59:59'));
 }
 
-let currentHistoryTab = 'points';
 function switchHistoryTab(tab) {
   currentHistoryTab = tab;
   document.getElementById('htab-points').className = `flex-1 py-2 text-sm font-bold transition-colors ${tab === 'points' ? 'text-primary border-b-2 border-primary' : 'text-muted border-b-2 border-transparent'}`;
