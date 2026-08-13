@@ -7,6 +7,14 @@ let currentAdminType = 'approvals';
 let currentReportTimeframe = 'this_week';
 let currentReportTab = 'tasks';
 let currentApprovalFilter = 'Pending Approval';
+let currentHistoryTab = 'points';
+let _cachedAppStartDate = null;
+let _historyCache = null;
+let _historyCacheFilter = null;
+let _reportDataCache = null;
+let _reportCacheKey = null;
+let _leaderboardRendered = false;
+let _rewardsTabRendered = false;
 
 let familySettings = {
     claim_max_days: 2,
@@ -38,6 +46,53 @@ function checkIfHoliday(dateObj, tasks) {
   return false;
 }
 
+async function getCachedAppStartDate() {
+  if (_cachedAppStartDate) return _cachedAppStartDate;
+  const { data: firstLog } = await supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
+  if (firstLog && firstLog.length > 0) {
+    _cachedAppStartDate = new Date(firstLog[0].created_at);
+    _cachedAppStartDate.setHours(0, 0, 0, 0);
+  }
+  return _cachedAppStartDate;
+}
+
+function friendlyError(error) {
+  if (!error) return 'Có lỗi xảy ra. Vui lòng thử lại sau.';
+  const msg = error.message || String(error);
+  const map = {
+    'JWT expired': 'Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.',
+    'Failed to fetch': 'Không có kết nối mạng. Kiểm tra WiFi/4G và thử lại.',
+    'NetworkError': 'Không có kết nối mạng. Kiểm tra WiFi/4G và thử lại.',
+    'violates foreign key': 'Dữ liệu liên quan đã bị xoá. Hãy tải lại trang.',
+    'row-level security': 'Bạn không có quyền thực hiện thao tác này.',
+    'duplicate key': 'Dữ liệu đã tồn tại. Không thể thêm trùng.',
+    'PGRST116': 'Không tìm thấy dữ liệu phù hợp.',
+    'rate limit': 'Bạn thao tác quá nhanh. Vui lòng đợi một chút.',
+  };
+  for (const [key, friendlyMsg] of Object.entries(map)) {
+    if (msg.includes(key)) return friendlyMsg;
+  }
+  return 'Có lỗi xảy ra. Vui lòng thử lại sau.';
+}
+
+function setButtonLoading(btn, loading) {
+  if (!btn) return;
+  if (loading) {
+    btn.disabled = true;
+    btn.dataset.originalHtml = btn.dataset.originalHtml || btn.innerHTML;
+    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i>Đang xử lý...';
+    btn.style.opacity = '0.7';
+  } else {
+    btn.disabled = false;
+    if (btn.dataset.originalHtml) btn.innerHTML = btn.dataset.originalHtml;
+    btn.style.opacity = '1';
+    delete btn.dataset.originalHtml;
+  }
+}
+
+window.addEventListener('offline', () => showToast('📡 Mất kết nối mạng. Một số tính năng sẽ không hoạt động.', 'error'));
+window.addEventListener('online', () => showToast('✅ Đã kết nối lại mạng!', 'success'));
+
 function showToast(msg, type = 'success') {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
@@ -50,6 +105,31 @@ function showToast(msg, type = 'success') {
   }
   container.appendChild(toast);
   setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 300); }, type === 'mega-success' ? 5000 : 3000);
+}
+
+function showHistorySkeleton() {
+  const cPoints = document.getElementById('history-points-list');
+  const cRewards = document.getElementById('history-rewards-list');
+  const skel = Array(5).fill(`
+    <div class="bg-card border border-borderline rounded-2xl p-0 flex flex-col gap-0 mb-2 skeleton overflow-hidden">
+      <div class="flex items-stretch justify-between w-full">
+        <div class="w-[76px] shrink-0 border-r border-borderline/50 p-3 flex flex-col items-center"><div class="w-10 h-10 rounded-2xl bg-borderline/30 mb-1.5"></div><div class="h-2 w-10 bg-borderline/30 rounded"></div></div>
+        <div class="flex-1 p-3 flex flex-col justify-center"><div class="h-4 w-3/4 bg-borderline/30 rounded mb-2"></div><div class="h-3 w-1/2 bg-borderline/30 rounded"></div></div>
+        <div class="p-3 flex items-center justify-end"><div class="h-6 w-12 bg-borderline/30 rounded-xl"></div></div>
+      </div>
+    </div>`).join('');
+  if (currentHistoryTab === 'points') cPoints.innerHTML = skel; else cRewards.innerHTML = skel;
+}
+
+function showReportSkeleton() {
+  document.getElementById('report-content-leaderboard').innerHTML = Array(3).fill(`
+    <div class="bg-card border border-borderline rounded-2xl p-4 flex items-center gap-4 mb-2 skeleton">
+      <div class="w-8 h-8 rounded-full bg-borderline/30"></div>
+      <div class="flex-1"><div class="h-4 w-1/2 bg-borderline/30 rounded mb-2"></div><div class="h-3 w-1/4 bg-borderline/30 rounded"></div></div>
+      <div class="w-16 h-8 rounded-lg bg-borderline/30"></div>
+    </div>`).join('');
+  document.getElementById('report-completed-container').innerHTML = '';
+  document.getElementById('report-missed-container').innerHTML = '';
 }
 
 // Styled replacement for window.confirm() so confirmation prompts match the app's UI
@@ -783,11 +863,17 @@ function switchHistoryTab(tab) {
 
 const HISTORY_WINDOW_DAYS = 90;
 
-async function loadHistoryData() {
-  showLoading(true);
-
+async function loadHistoryData(force = false) {
   const filterSelect = document.getElementById('history-user-filter');
   const existingVal = filterSelect.value;
+  const filterUser = filterSelect.value || (currentUser.role === 'User' ? currentUser.username : 'all');
+
+  if (!force && _historyCache && _historyCacheFilter === filterUser) {
+    historyItems = _historyCache;
+    return renderHistoryTabItems();
+  }
+
+  showHistorySkeleton();
 
   // Fetch everything that doesn't depend on the selected filter in one round-trip.
   let usersPromise = Promise.resolve({ data: null });
@@ -796,9 +882,12 @@ async function loadHistoryData() {
     if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
     usersPromise = usersQuery;
   }
-  const firstLogPromise = supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
-
-  const [{ data: usersData }, { data: firstLog }] = await Promise.all([usersPromise, firstLogPromise]);
+  
+  const [usersDataResponse, appStartDate] = await Promise.all([
+    usersPromise, 
+    getCachedAppStartDate()
+  ]);
+  const usersData = usersDataResponse.data;
 
   let usersList = [];
   if (currentUser.role === 'User') {
@@ -813,14 +902,7 @@ async function loadHistoryData() {
     if (existingVal) filterSelect.value = existingVal;
   }
 
-  const filterUser = filterSelect.value || (currentUser.role === 'User' ? currentUser.username : 'all');
   const familyUsernames = usersList.length > 0 ? usersList.map(u => u.username) : [currentUser.username];
-
-  let appStartDate = null;
-  if (firstLog && firstLog.length > 0) {
-    appStartDate = new Date(firstLog[0].created_at);
-    appStartDate.setHours(0, 0, 0, 0);
-  }
 
   // Bound history to a recent rolling window so it stays fast no matter how long
   // the family has been using the app. Items older than this (and past the claim
@@ -999,8 +1081,18 @@ async function loadHistoryData() {
   }
 
   historyItems.sort((a, b) => b.date - a.date);
-  showLoading(false);
+  
+  _historyCache = historyItems;
+  _historyCacheFilter = filterUser;
+  window._lastHistoryUsersList = usersList; // cache for render
+  renderHistoryTabItems();
+}
 
+function renderHistoryTabItems() {
+  const filterSelect = document.getElementById('history-user-filter');
+  const filterUser = filterSelect.value || (currentUser.role === 'User' ? currentUser.username : 'all');
+  const usersList = window._lastHistoryUsersList || [];
+  
   // Render Points (Mix of Earn, Missed, adjusted, spend...)
   const pContainer = document.getElementById('history-points-list');
   if (historyItems.length === 0) {
@@ -1152,7 +1244,15 @@ async function loadReport(timeframe) {
 }
 
 async function loadReportData(startDate, endDate) {
-  document.getElementById('report-period').innerText = 'Đang tải...'; showLoading(true);
+  const cacheKey = `${startDate.toISOString()}_${endDate.toISOString()}`;
+  if (_reportCacheKey === cacheKey && _reportDataCache) {
+    currentReportData = _reportDataCache;
+    renderReportFromCache();
+    return;
+  }
+
+  document.getElementById('report-period').innerText = 'Đang tải...'; 
+  showReportSkeleton();
 
   let usersQuery = supabaseClient.from('users').select('*');
   if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
@@ -1162,9 +1262,12 @@ async function loadReportData(startDate, endDate) {
   // then fire the family-scoped queries in a second parallel batch.
   let rawTasksQuery = supabaseClient.from('tasks').select('*');
   if (getFamilyId()) rawTasksQuery = rawTasksQuery.eq('family_id', getFamilyId());
-  const firstLogQuery = supabaseClient.from('task_logs').select('created_at').eq('status', 'Approved').order('created_at', { ascending: true }).limit(1);
 
-  const [{ data: users }, { data: rawTasks }, { data: firstLog }] = await Promise.all([usersQuery, rawTasksQuery, firstLogQuery]);
+  const [{ data: users }, { data: rawTasks }, appStartDate] = await Promise.all([
+    usersQuery, 
+    rawTasksQuery, 
+    getCachedAppStartDate()
+  ]);
   const tasks = unpackTasks(rawTasks);
 
   const familyUsernames = (users || []).map(u => u.username);
@@ -1180,16 +1283,19 @@ async function loadReportData(startDate, endDate) {
 
   const [{ data: trans }, { data: logs }] = await Promise.all([transQuery, logsQuery]);
 
-  showLoading(false);
   document.getElementById('report-period').innerText = `${startDate.toLocaleDateString('vi-VN')} - ${endDate.toLocaleDateString('vi-VN')}`;
 
-  let appStartDate = null;
-  if (firstLog && firstLog.length > 0) {
-    appStartDate = new Date(firstLog[0].created_at);
-    appStartDate.setHours(0, 0, 0, 0);
-  }
-
   currentReportData = { tasks: tasks || [], logs: logs || [], startDate, endDate, users: users || [], appStartDate, trans: trans || [] };
+  
+  _reportDataCache = currentReportData;
+  _reportCacheKey = cacheKey;
+  
+  renderReportFromCache();
+}
+
+function renderReportFromCache() {
+  if (!currentReportData) return;
+  const { tasks, logs, startDate, endDate, users, appStartDate, trans } = currentReportData;
 
   // Set up filter dropdown
   const filterSelect = document.getElementById('report-user-filter');
@@ -2738,8 +2844,7 @@ function openThemeModal() {
 function closeThemeModal() { document.getElementById('theme-modal').classList.add('hidden'); document.getElementById('theme-modal').classList.remove('flex'); }
 
 function isPremiumTheme() {
-  const currentMode = localStorage.getItem('housework_theme') || 'dark';
-  return currentMode.startsWith('apple-');
+  return true; // Daily Progress Ring now available for all themes
 }
 
 function setAppTheme(themeId) {
