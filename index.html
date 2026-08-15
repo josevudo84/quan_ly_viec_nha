@@ -644,6 +644,7 @@
     <!-- VIEW: HOME -->
     <section id="view-home" class="view-section">
       <div id="premium-summary-container" class="hidden mb-6"></div>
+      <div id="reward-alert-box" class="hidden mb-4"></div>
       <div id="reminder-box"
         class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 mb-6 flex items-start gap-3 hidden">
         <i class="fa-solid fa-bell text-amber-500 mt-0.5 animate-bounce"></i>
@@ -940,12 +941,21 @@
         <!-- Section 3 -->
         <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm">
           <h3 class="font-bold text-primary text-sm mb-2 flex items-center gap-2"><i class="fa-solid fa-gift"></i> Đổi Phần Thưởng</h3>
-          <p class="text-sm text-main mb-1">Khi đủ điểm, bấm <b>"Đổi quà luôn"</b> ở cuối trang chủ. Điểm sẽ bị trừ ngay lập tức!</p>
-          <div class="flex gap-2 text-[10px] mt-2">
+          <p class="text-sm text-main mb-1">Khi đủ điểm, bấm <b>"Đổi quà luôn"</b> ở cuối trang chủ. Điểm bị trừ ngay, nhưng <b>huỷ đơn là được hoàn lại đủ</b>.</p>
+          <div class="flex gap-2 text-[10px] mt-2 flex-wrap">
             <span class="bg-amber-500/20 text-amber-500 px-2 py-1 rounded border border-amber-500/20">🟡 Chờ trao</span>
-            <span class="bg-blue-500/20 text-blue-500 px-2 py-1 rounded border border-blue-500/20">🔵 Đang giao</span>
-            <span class="bg-success/20 text-success px-2 py-1 rounded border border-success/20">✅ Đã nhận</span>
+            <span class="bg-blue-500/20 text-blue-500 px-2 py-1 rounded border border-blue-500/20">🔵 Đã trao, chờ xác nhận</span>
+            <span class="bg-success/20 text-success px-2 py-1 rounded border border-success/20">✅ Hoàn tất</span>
+            <span class="bg-surface text-muted px-2 py-1 rounded border border-borderline">↩ Đã huỷ · hoàn điểm</span>
           </div>
+          <ul class="text-xs text-main list-disc pl-4 space-y-1 mt-3">
+            <li>Xem và thao tác đơn ở tab <b>Lịch sử → Lịch sử đổi quà</b>.</li>
+            <li>Quà <b>chưa trao</b>: bạn tự bấm <b>"Huỷ &amp; hoàn điểm"</b> được.</li>
+            <li>Quà <b>đã trao</b>: chỉ bạn mới bấm được <b>"Mình đã nhận quà"</b> để chốt đơn.</li>
+            <li>Được tặng điểm thưởng thì bấm <b>"Nhận ngay"</b>, điểm vào tài khoản liền.</li>
+            <li>Có quà giới hạn số lượng (hiện <b>"Còn N"</b>) hoặc giới hạn số lần đổi mỗi tuần.</li>
+            <li>Khi có việc cần bạn xử lý, Trang chủ sẽ hiện banner nhắc và nút <b>Lịch sử</b> có chấm đỏ.</li>
+          </ul>
         </div>
 
         <!-- Section 4 -->
@@ -953,6 +963,8 @@
           <h3 class="font-bold text-primary text-sm mb-2 flex items-center gap-2"><i class="fa-solid fa-shield-halved"></i> Dành cho Quản trị viên</h3>
           <ul class="text-xs text-main list-disc pl-4 space-y-1">
             <li><b>Duyệt việc:</b> Vào tab Quản trị → Duyệt việc. Bấm ✅ để cộng điểm.</li>
+            <li><b>Trao quà:</b> Quản trị → Trao quà. Trao gói thưởng điểm, xác nhận đã trao quà, hoặc <b>huỷ đơn để hoàn điểm</b> cho con khi hết hàng.</li>
+            <li><b>Trao nhầm:</b> Khoản thưởng điểm chưa được bấm nhận thì <b>thu hồi</b> được ngay tại tab Trao quà.</li>
             <li><b>Reset điểm:</b> Nút 🔄 trong tab Thành viên sẽ đưa điểm cả nhà về 0.</li>
             <li><b>Calc Admin:</b> Nếu bật khi tạo việc, Admin KHÔNG làm cũng bị trừ điểm.</li>
             <li><b>Điều kiện ⚡:</b> Nếu bật, các thành viên phải làm việc này mới được cộng thưởng ngày hôm đó.</li>
@@ -1076,7 +1088,7 @@
           <div id="grant-reward-points" class="text-sm text-yellow-500 font-black"></div>
         </div>
         <div>
-          <label class="block text-[10px] text-muted mb-2 font-bold tracking-wider">CHỌN THÀNH VIÊN NHẬN</label>
+          <label id="grant-list-label" class="block text-[10px] text-muted mb-2 font-bold tracking-wider">CHỌN THÀNH VIÊN NHẬN</label>
           <div id="grant-user-list" class="space-y-2 max-h-[40vh] overflow-y-auto"></div>
         </div>
       </div>
@@ -1169,7 +1181,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=3.1"></script>
+  <script src="app.js?v=3.3"></script>
 </body>
 
 </html>

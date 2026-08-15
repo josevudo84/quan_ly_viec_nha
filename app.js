@@ -15,6 +15,7 @@ let _reportDataCache = null;
 let _reportCacheKey = null;
 let _leaderboardRendered = false;
 let _rewardsTabRendered = false;
+let _redeemInFlight = false;
 
 let familySettings = {
     claim_max_days: 2,
@@ -32,6 +33,164 @@ function isAdminOrMod() { return currentUser && (currentUser.role === 'Admin' ||
 function getFamilyId() { return currentUser ? currentUser.family_id : null; }
 
 function showLoading(show) { document.getElementById('loading-overlay').style.display = show ? 'flex' : 'none'; }
+
+// === ESCAPING ===
+// Text hiển thị trong HTML.
+function escHtml(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+// Chuỗi nằm trong nháy đơn của JS, bên trong thuộc tính onclick="..." (2 lớp escape).
+function escJsAttr(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/[\r\n]+/g, ' ');
+}
+
+// === ĐIỂM: cộng/trừ an toàn ===
+// Đọc điểm mới nhất rồi ghi kèm điều kiện "điểm chưa đổi" (optimistic lock).
+// Nếu có thiết bị khác vừa ghi, thử lại thay vì ghi đè mất dữ liệu.
+async function adjustUserPoints(username, delta, opts = {}) {
+  const floorAtZero = opts.floorAtZero !== false; // mặc định không cho âm
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const { data: u, error: readErr } = await supabaseClient.from('users').select('points').eq('username', username).single();
+    if (readErr || !u) return { error: 'Không tìm thấy thành viên.' };
+    const cur = u.points === null || u.points === undefined ? 0 : Number(u.points);
+    let next = cur + delta;
+    if (floorAtZero && next < 0) next = 0;
+    let q = supabaseClient.from('users').update({ points: next }).eq('username', username);
+    q = (u.points === null || u.points === undefined) ? q.is('points', null) : q.eq('points', u.points);
+    const { data: rows, error: writeErr } = await q.select('points');
+    if (writeErr) return { error: writeErr.message };
+    if (rows && rows.length > 0) return { points: rows[0].points, previous: cur };
+    // Không nhận được dòng trả về: có thể do người khác vừa ghi, cũng có thể do
+    // server không trả representation. Đọc lại để không cộng/trừ lần thứ hai.
+    const { data: after } = await supabaseClient.from('users').select('points').eq('username', username).single();
+    if (after && Number(after.points) === next) return { points: next, previous: cur };
+  }
+  return { error: 'Điểm đang được cập nhật ở nơi khác, bạn thử lại sau vài giây nhé!' };
+}
+
+// === BADGE & NHẮC VIỆC ===
+// Đếm số việc đang chờ để chấm đỏ / con số hiện ngay trên nav và menu quản trị,
+// thay vì bắt người dùng tự mò vào từng tab kiểm tra.
+let pendingCounts = { myRewards: 0, orders: 0, grants: 0, approvals: 0 };
+
+async function refreshPendingBadges() {
+  if (!currentUser || !supabaseClient) return;
+  try {
+    // Việc của chính mình: quà đã trao chờ mình xác nhận + điểm thưởng chờ mình nhận.
+    const mineQuery = supabaseClient.from('reward_redemptions').select('id, kind, status')
+      .eq('username', currentUser.username).in('status', ['delivered', 'pending_claim']);
+
+    const jobs = [mineQuery];
+    if (isAdminOrMod()) {
+      let usersQuery = supabaseClient.from('users').select('username');
+      if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
+      const { data: fam } = await usersQuery;
+      const usernames = (fam || []).map(u => u.username);
+
+      let openQuery = supabaseClient.from('reward_redemptions').select('id, kind, status')
+        .in('status', ['pending_delivery', 'delivered', 'pending_claim']);
+      if (usernames.length > 0) openQuery = openQuery.in('username', usernames);
+
+      let apprQuery = supabaseClient.from('task_logs').select('id, tasks!inner(family_id)').eq('status', 'Pending Approval');
+      if (getFamilyId()) apprQuery = apprQuery.eq('tasks.family_id', getFamilyId());
+
+      jobs.push(openQuery, apprQuery);
+    }
+
+    const results = await Promise.all(jobs);
+    const mine = results[0].data || [];
+    pendingCounts.myRewards = mine.length;
+
+    if (isAdminOrMod()) {
+      const open = results[1].data || [];
+      pendingCounts.orders = open.filter(r => r.kind === 'spend').length;
+      pendingCounts.grants = open.filter(r => r.kind === 'grant').length;
+      pendingCounts.approvals = (results[2].data || []).length;
+    }
+    renderPendingBadges();
+  } catch (e) {
+    // Badge chỉ là tiện ích - hỏng thì im lặng, không chặn luồng chính.
+    console.warn('Không lấy được số liệu badge:', e);
+  }
+}
+
+function setNavDot(navId, show) {
+  const btn = document.getElementById(navId);
+  if (!btn) return;
+  btn.classList.add('relative');
+  let dot = btn.querySelector('.nav-dot');
+  if (show && !dot) {
+    dot = document.createElement('span');
+    dot.className = 'nav-dot absolute top-1 right-1/2 translate-x-4 w-2.5 h-2.5 rounded-full bg-red-500 ring-2 ring-[var(--bg-dark)]';
+    btn.appendChild(dot);
+  } else if (!show && dot) {
+    dot.remove();
+  }
+}
+
+function setTileBadge(tileId, count) {
+  const tile = document.getElementById(tileId);
+  if (!tile) return;
+  tile.classList.add('relative');
+  let b = tile.querySelector('.tile-badge');
+  if (count > 0) {
+    if (!b) {
+      b = document.createElement('span');
+      b.className = 'tile-badge absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1.5 rounded-full bg-red-500 text-white text-[10px] font-black flex items-center justify-center shadow-lg';
+      tile.appendChild(b);
+    }
+    b.innerText = count > 99 ? '99+' : String(count);
+  } else if (b) {
+    b.remove();
+  }
+}
+
+function renderPendingBadges() {
+  setNavDot('nav-history', pendingCounts.myRewards > 0);
+  setNavDot('nav-admin', (pendingCounts.orders + pendingCounts.grants + pendingCounts.approvals) > 0);
+  setTileBadge('admin-tab-reward_approvals', pendingCounts.orders + pendingCounts.grants);
+  setTileBadge('admin-tab-approvals', pendingCounts.approvals);
+  renderHomeRewardBanner();
+}
+
+// Banner trên Home: user không phải tự mò vào Lịch sử mới biết mình có quà.
+function renderHomeRewardBanner() {
+  const box = document.getElementById('reward-alert-box');
+  if (!box) return;
+  const n = pendingCounts.myRewards;
+  if (n <= 0) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <button onclick="goToMyRewards()" class="w-full bg-gradient-to-r from-primary/10 to-purple-500/10 border border-primary/30 rounded-2xl p-4 flex items-center gap-3 text-left active-scale hover:border-primary/60 transition-all">
+      <div class="w-11 h-11 rounded-2xl bg-primary/20 flex items-center justify-center text-primary text-xl shrink-0"><i class="fa-solid fa-gift animate-bounce"></i></div>
+      <div class="flex-1 min-w-0">
+        <div class="font-bold text-primary text-sm">Bạn có ${n} phần thưởng cần xử lý!</div>
+        <p class="text-[11px] text-muted mt-0.5">Bấm vào đây để nhận điểm thưởng hoặc xác nhận đã nhận quà.</p>
+      </div>
+      <i class="fa-solid fa-chevron-right text-muted text-sm shrink-0"></i>
+    </button>`;
+}
+
+function goToMyRewards() {
+  switchTab('history');
+  switchHistoryTab('rewards');
+}
+
+// Mọi thao tác làm thay đổi điểm/giao dịch đều phải gọi hàm này, nếu không
+// tab Lịch sử và Báo cáo sẽ hiển thị dữ liệu cũ cho tới khi tải lại trang.
+function invalidateDataCaches() {
+  _historyCache = null;
+  _historyCacheFilter = null;
+  _reportDataCache = null;
+  _reportCacheKey = null;
+}
 
 function checkIfHoliday(dateObj, tasks) {
   if (!tasks) return false;
@@ -405,6 +564,7 @@ async function initApp() {
   
   await loadFamilySettings();
   switchTab('home');
+  refreshPendingBadges();
 }
 
 async function loadFamilySettings() {
@@ -443,6 +603,7 @@ function switchTab(tabId) {
   if (tabId === 'history') loadHistoryData();
   if (tabId === 'admin') loadAdminData(null);
   if (tabId === 'schedule') loadScheduleView();
+  if (tabId === 'home' || tabId === 'admin' || tabId === 'history') refreshPendingBadges();
 }
 
 function unpackTasks(tasks) {
@@ -512,7 +673,7 @@ async function awardDeferredPoints(periodId) {
       finalPoints = 0;
     }
     if (finalPoints > 0) {
-      await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', log.username);
+      await adjustUserPoints(log.username, finalPoints);
       await supabaseClient.from('transactions').insert([{ username: log.username, type: 'Earn', amount: finalPoints, description: `Được duyệt: ${task.task_name}` }]);
     }
     await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', log.id);
@@ -635,7 +796,7 @@ async function loadHomeData() {
 
   let rewardsQuery = supabaseClient.from('rewards').select('*');
   if (getFamilyId()) rewardsQuery = rewardsQuery.eq('family_id', getFamilyId());
-  rewardsQuery = rewardsQuery.is('is_point_reward', false);
+  rewardsQuery = rewardsQuery.is('is_point_reward', false).not('active', 'is', false);
   const { data: rewardsData } = await rewardsQuery;
   showLoading(false);
 
@@ -837,27 +998,213 @@ async function submitTask(taskId, periodId) {
 
 function renderRewards(rewards) {
   const container = document.getElementById('home-rewards-container');
-  container.innerHTML = rewards.map(r => {
-    const canAfford = currentUser.points >= r.cost; const rIcon = r.icon || 'fa-solid fa-gift text-amber-500';
+  if (!rewards || rewards.length === 0) {
+    container.innerHTML = '<div class="col-span-2 text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl">Chưa có phần thưởng nào. Nhắc Bố Mẹ thêm quà nhé!</div>';
+    return;
+  }
+  const myPoints = Number(currentUser.points) || 0;
+  // Món sắp đổi được đẩy lên trước để tạo động lực, món hết hàng xuống cuối.
+  const sorted = rewards.slice().sort((a, b) => {
+    const outA = a.stock !== null && a.stock !== undefined && a.stock <= 0;
+    const outB = b.stock !== null && b.stock !== undefined && b.stock <= 0;
+    if (outA !== outB) return outA ? 1 : -1;
+    const affA = myPoints >= (Number(a.cost) || 0), affB = myPoints >= (Number(b.cost) || 0);
+    if (affA !== affB) return affA ? -1 : 1;
+    return (Number(a.cost) || 0) - (Number(b.cost) || 0);
+  });
+
+  container.innerHTML = sorted.map(r => {
+    const cost = Number(r.cost) || 0;
+    const hasStock = r.stock !== null && r.stock !== undefined;
+    const outOfStock = hasStock && Number(r.stock) <= 0;
+    const canAfford = myPoints >= cost;
+    const usable = canAfford && !outOfStock;
+    const rIcon = r.icon || 'fa-solid fa-gift text-amber-500';
+    const missing = cost - myPoints;
+    const pct = cost > 0 ? Math.min(100, Math.round((myPoints / cost) * 100)) : 100;
+
+    let label = 'Đổi quà luôn';
+    if (outOfStock) label = 'Tạm hết';
+    else if (!canAfford) label = `Còn thiếu ${missing}`;
+
     return `
-        <div class="bg-card border border-borderline rounded-2xl p-4 flex flex-col items-center text-center shadow-sm relative overflow-hidden transition-all hover:border-primary/50">
-            <div class="w-14 h-14 rounded-full bg-surface shadow-inner flex items-center justify-center mb-3 text-2xl text-primary"><i class="${rIcon}"></i></div>
-            <h3 class="font-bold text-main text-sm mb-1 line-clamp-1">${r.reward_name}</h3>
-            <div class="font-black text-sm mb-3 flex items-center gap-1 ${canAfford ? 'text-yellow-500' : 'text-muted'}"><i class="fa-solid fa-coins"></i> ${r.cost}</div>
-            <button onclick="redeemReward('${r.id}', ${r.cost}, '${r.reward_name}')" class="w-full py-2.5 rounded-xl text-xs font-bold active-scale transition-all duration-300 ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105' : 'bg-surface text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>Đổi quà luôn</button>
+        <div class="bg-card border border-borderline rounded-2xl p-4 flex flex-col items-center text-center shadow-sm relative overflow-hidden transition-all hover:border-primary/50 ${outOfStock ? 'opacity-60' : ''}">
+            ${hasStock && !outOfStock ? `<span class="absolute top-2 right-2 text-[9px] font-bold text-muted bg-surface border border-borderline px-1.5 py-0.5 rounded">Còn ${r.stock}</span>` : ''}
+            ${outOfStock ? '<span class="absolute top-2 right-2 text-[9px] font-bold text-red-500 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">Hết</span>' : ''}
+            <div class="w-14 h-14 rounded-full bg-surface shadow-inner flex items-center justify-center mb-3 text-2xl text-primary"><i class="${escHtml(rIcon)}"></i></div>
+            <h3 class="font-bold text-main text-sm mb-1 line-clamp-1">${escHtml(r.reward_name)}</h3>
+            <div class="font-black text-sm mb-2 flex items-center gap-1 ${canAfford ? 'text-yellow-500' : 'text-muted'}"><i class="fa-solid fa-coins"></i> ${cost}</div>
+            ${!canAfford ? `<div class="w-full h-1.5 rounded-full bg-surface overflow-hidden mb-2"><div class="h-full bg-gradient-to-r from-primary to-purple-500 rounded-full" style="width:${pct}%"></div></div>` : ''}
+            <button onclick="redeemReward('${escJsAttr(r.id)}', ${cost}, '${escJsAttr(r.reward_name)}')" class="w-full py-2.5 rounded-xl text-xs font-bold active-scale transition-all duration-300 ${usable ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105' : 'bg-surface text-muted opacity-50 cursor-not-allowed'}" ${!usable ? 'disabled' : ''}>${label}</button>
         </div>`;
   }).join('');
 }
 
+// Trạng thái đơn -> nhãn hiển thị. Một chỗ duy nhất để đổi chữ.
+const REDEMPTION_STATUS = {
+  pending_delivery: { text: 'Chờ trao', cls: 'bg-amber-500/10 text-amber-500 border-amber-500/20' },
+  delivered:        { text: 'Đã trao, chờ xác nhận', cls: 'bg-blue-500/10 text-blue-500 border-blue-500/20' },
+  completed:        { text: 'Hoàn tất', cls: 'bg-success/10 text-success border-success/20' },
+  cancelled:        { text: 'Đã huỷ · hoàn điểm', cls: 'bg-surface text-muted border-borderline' },
+  pending_claim:    { text: 'Chờ bạn nhận', cls: 'bg-primary/10 text-primary border-primary/20' },
+  claimed:          { text: 'Đã nhận', cls: 'bg-success/10 text-success border-success/20' },
+  revoked:          { text: 'Đã thu hồi', cls: 'bg-surface text-muted border-borderline' }
+};
+
+// Dịch mã lỗi do các hàm RPC ném ra sang tiếng Việt dễ hiểu.
+function rewardError(error) {
+  const m = (error && error.message) || '';
+  const num = (key) => parseInt((m.split(key + ':')[1] || '').match(/\d+/), 10) || 0;
+  if (m.includes('NOT_ENOUGH_POINTS')) return `Chưa đủ điểm rồi! Bạn còn thiếu ${num('NOT_ENOUGH_POINTS')} điểm.`;
+  if (m.includes('WEEKLY_LIMIT')) return `Món này chỉ được đổi ${num('WEEKLY_LIMIT')} lần mỗi tuần thôi.`;
+  if (m.includes('OUT_OF_STOCK')) return 'Món này vừa hết mất rồi!';
+  if (m.includes('REWARD_INACTIVE')) return 'Món quà này đang tạm ngưng.';
+  if (m.includes('REWARD_NOT_FOUND')) return 'Không tìm thấy phần thưởng này.';
+  if (m.includes('NOT_REDEEMABLE')) return 'Đây là gói thưởng điểm, không đổi được.';
+  if (m.includes('INVALID_COST')) return 'Phần thưởng này chưa có giá hợp lệ.';
+  if (m.includes('ALREADY_CLOSED')) return 'Đơn này đã hoàn tất hoặc đã huỷ trước đó.';
+  if (m.includes('ALREADY_CLAIMED')) return 'Phần thưởng này đã được nhận trước đó rồi.';
+  if (m.includes('NOT_YOURS')) return 'Đây là phần thưởng của người khác nha!';
+  if (m.includes('USER_NOT_FOUND')) return 'Không tìm thấy thành viên.';
+  if (m.includes('NOT_FOUND')) return 'Không tìm thấy đơn này.';
+  if (/does not exist|schema cache|relation .* does not exist/i.test(m)) {
+    return 'Chưa chạy migration_reward_flow.sql trên Supabase!';
+  }
+  return m || 'Có lỗi xảy ra, thử lại giúp mình nhé.';
+}
+
 async function redeemReward(rewardId, cost, name) {
-  if (!(await customConfirm(`Dùng ${cost} điểm đổi [ ${name} ] ?`, 'Xác nhận đổi quà'))) return;
-  showLoading(true); const newPts = currentUser.points - cost;
-  const { error } = await supabaseClient.from('users').update({ points: newPts }).eq('username', currentUser.username);
-  if (error) { showLoading(false); return showToast('Lỗi DB', 'error'); }
-  await supabaseClient.from('transactions').insert([{ username: currentUser.username, type: 'Spend', amount: cost, description: `[Chờ trao] Đổi quà: ${name}` }]);
-  refreshUserPoints(); showLoading(false); showToast(`Tuyệt vời! Đừng quên đòi nha!`, 'mega-success');
-  if (typeof confetti === 'function') confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 });
-  loadHomeData();
+  if (_redeemInFlight) return;
+  cost = Number(cost) || 0;
+  if (cost <= 0) return showToast('Phần thưởng này chưa có giá hợp lệ.', 'error');
+
+  _redeemInFlight = true;
+  try {
+    // Lấy số dư mới nhất từ server để hộp xác nhận nói đúng con số.
+    showLoading(true);
+    const { data: fresh } = await supabaseClient.from('users').select('points').eq('username', currentUser.username).single();
+    showLoading(false);
+    const balance = fresh ? Number(fresh.points) || 0 : 0;
+    if (balance !== currentUser.points) await refreshUserPoints();
+    if (balance < cost) {
+      return showToast(`Chưa đủ điểm rồi! Bạn còn thiếu ${cost - balance} điểm.`, 'error');
+    }
+
+    const ok = await customConfirm(
+      `Đổi [ ${name} ] với giá ${cost} điểm?\n\nĐiểm của bạn: ${balance} → ${balance - cost}\nBạn vẫn có thể huỷ đơn để lấy lại điểm khi quà chưa được trao.`,
+      'Xác nhận đổi quà', 'Đổi ngay');
+    if (!ok) return;
+
+    const note = (document.getElementById('redeem-note-value') || {}).value || null;
+
+    showLoading(true);
+    // Toàn bộ việc kiểm tra số dư, tồn kho, giới hạn tuần, trừ điểm và tạo đơn
+    // nằm trong MỘT transaction dưới DB -> không còn cảnh trừ điểm mà mất đơn.
+    const { error } = await supabaseClient.rpc('redeem_reward', {
+      p_username: currentUser.username, p_reward_id: rewardId, p_note: note
+    });
+    showLoading(false);
+    if (error) return showToast(rewardError(error), 'error');
+
+    invalidateDataCaches();
+    refreshUserPoints();
+    showToast('Đổi quà thành công! Chờ Bố Mẹ trao nha!', 'mega-success');
+    if (typeof confetti === 'function') confetti({ particleCount: 200, spread: 100, origin: { y: 0.5 }, zIndex: 9999 });
+    loadHomeData();
+    refreshPendingBadges();
+  } finally {
+    _redeemInFlight = false;
+  }
+}
+
+// Sau khi thao tác xong thì làm tươi đúng màn hình đang mở.
+function refreshRewardViews() {
+  invalidateDataCaches();
+  refreshPendingBadges();
+  const adminOpen = !document.getElementById('view-admin').classList.contains('hidden');
+  if (adminOpen && currentAdminType === 'reward_approvals') loadAdminData('reward_approvals');
+  else if (!document.getElementById('view-history').classList.contains('hidden')) loadHistoryData(true);
+}
+
+// Huỷ đơn đổi quà và hoàn lại điểm. User huỷ được đơn của mình khi chưa trao,
+// Admin/Mod huỷ được mọi đơn chưa hoàn tất.
+async function cancelRedemption(redemptionId) {
+  const { data: r } = await supabaseClient.from('reward_redemptions').select('*').eq('id', redemptionId).single();
+  if (!r) return showToast('Không tìm thấy đơn này!', 'error');
+  if (r.status !== 'pending_delivery' && r.status !== 'delivered') {
+    refreshRewardViews();
+    return showToast('Đơn này đã hoàn tất hoặc đã huỷ trước đó.', 'error');
+  }
+  const isOwner = r.username === currentUser.username;
+  if (!isOwner && !isAdminOrMod()) return showToast('Bạn không có quyền huỷ đơn này.', 'error');
+  if (r.status === 'delivered' && !isAdminOrMod()) return showToast('Quà đã được trao, nhờ Bố Mẹ huỷ giúp nhé.', 'error');
+
+  const ok = await customConfirm(
+    `Huỷ đơn đổi [ ${r.reward_name} ]?\n\n${r.cost} điểm sẽ được hoàn lại cho ${isOwner ? 'bạn' : r.username}.`,
+    'Huỷ đơn & hoàn điểm', 'Huỷ đơn');
+  if (!ok) return;
+
+  showLoading(true);
+  // Đổi trạng thái + hoàn điểm + trả tồn kho nằm chung một transaction DB.
+  const { error } = await supabaseClient.rpc('cancel_redemption', {
+    p_id: Number(redemptionId), p_actor: currentUser.username, p_reason: null
+  });
+  showLoading(false);
+  if (error) { refreshRewardViews(); return showToast(rewardError(error), 'error'); }
+
+  showToast(`Đã huỷ đơn và hoàn ${r.cost} điểm.`, 'success');
+  if (isOwner) refreshUserPoints();
+  refreshRewardViews();
+}
+
+// Admin đánh dấu đã trao quà tận tay. Không dịch chuyển điểm nên dùng
+// compare-and-swap trên status là đủ.
+async function markRedemptionDelivered(redemptionId) {
+  if (!isAdminOrMod()) return showToast('Bạn không có quyền thao tác này.', 'error');
+  showLoading(true);
+  const { data: rows, error } = await supabaseClient.from('reward_redemptions')
+    .update({ status: 'delivered', delivered_at: new Date().toISOString(), handled_by: currentUser.username })
+    .eq('id', redemptionId).eq('status', 'pending_delivery')
+    .select('id');
+  showLoading(false);
+  if (error) return showToast(rewardError(error), 'error');
+  if (!rows || rows.length === 0) {
+    refreshRewardViews();
+    return showToast('Đơn vừa được xử lý ở nơi khác, đã tải lại danh sách.', 'error');
+  }
+  showToast('Đã ghi nhận trao quà. Chờ bạn ấy xác nhận nhé!', 'success');
+  refreshRewardViews();
+}
+
+// Chốt đơn. Đường chính là chính chủ bấm; Admin đóng hộ được nhưng phải xác nhận rõ.
+async function completeRedemption(redemptionId) {
+  const { data: r } = await supabaseClient.from('reward_redemptions').select('*').eq('id', redemptionId).single();
+  if (!r) return showToast('Không tìm thấy đơn này!', 'error');
+  if (r.status !== 'delivered') { refreshRewardViews(); return showToast('Đơn này không ở trạng thái chờ xác nhận.', 'error'); }
+
+  const isOwner = r.username === currentUser.username;
+  if (!isOwner) {
+    if (!isAdminOrMod()) return showToast('Chỉ người nhận mới xác nhận được bước này.', 'error');
+    const ok = await customConfirm(
+      `Đóng đơn [ ${r.reward_name} ] thay cho ${r.username}?\n\nBình thường nên để chính bạn ấy bấm "Mình đã nhận quà" để hai bên cùng xác nhận.`,
+      'Đóng đơn thay người nhận', 'Đóng đơn');
+    if (!ok) return;
+  }
+
+  showLoading(true);
+  const { data: rows, error } = await supabaseClient.from('reward_redemptions')
+    .update({ status: 'completed', completed_at: new Date().toISOString(), handled_by: currentUser.username })
+    .eq('id', redemptionId).eq('status', 'delivered')
+    .select('id');
+  showLoading(false);
+  if (error) return showToast(rewardError(error), 'error');
+  if (!rows || rows.length === 0) {
+    refreshRewardViews();
+    return showToast('Đơn vừa được xử lý ở nơi khác, đã tải lại danh sách.', 'error');
+  }
+  showToast('Xong đơn quà rồi, chúc mừng!', 'mega-success');
+  if (isOwner && typeof confetti === 'function') confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 } });
+  refreshRewardViews();
 }
 
 function toggleCustomDate() {
@@ -940,8 +1287,17 @@ async function loadHistoryData(force = false) {
 
   let logsQuery = supabaseClient.from('task_logs').select('*').neq('status', 'Rejected').gte('created_at', effectiveStart.toISOString());
 
-  const [{ data: trans }, { data: rawTasks }, { data: logs }] = await Promise.all([transQuery, rawTasksQuery, logsQuery]);
+  // Đơn quà đọc từ bảng trạng thái riêng, không giới hạn 30 ngày: đơn còn treo
+  // phải luôn thao tác được, và lịch sử quà vốn ít bản ghi nên không nặng.
+  let redemptionQuery = supabaseClient.from('reward_redemptions').select('*').order('created_at', { ascending: false }).limit(200);
+  if (filterUser !== 'all') redemptionQuery = redemptionQuery.eq('username', filterUser);
+  else redemptionQuery = redemptionQuery.in('username', familyUsernames);
+
+  const [{ data: trans }, { data: rawTasks }, { data: logs }, { data: redemptions, error: redErr }] =
+    await Promise.all([transQuery, rawTasksQuery, logsQuery, redemptionQuery]);
   const tasks = unpackTasks(rawTasks);
+  if (redErr) showToast(rewardError(redErr), 'error');
+  window._lastRedemptions = redemptions || [];
 
   const logMap = {};
   if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id + '_' + l.username] = l.status);
@@ -956,9 +1312,9 @@ async function loadHistoryData(force = false) {
       let taskName = t.description;
 
       let rStatus = 'Đã nhận';
-      if (t.type === 'Spend') { 
-          actType = 'Spend'; 
-          actionText = 'Đổi quà'; 
+      if (t.type === 'Spend') {
+          actType = 'Spend';
+          actionText = 'Đổi quà';
           taskName = t.description;
           if (taskName.startsWith('[Chờ trao] ')) {
               rStatus = 'Chờ trao';
@@ -967,8 +1323,20 @@ async function loadHistoryData(force = false) {
               rStatus = 'Đã trao';
               taskName = taskName.replace('[Đã trao] Đổi quà: ', '').trim();
           } else {
-              taskName = taskName.replace('Đổi quà: ', '').trim(); 
+              taskName = taskName.replace('Đổi quà: ', '').trim();
           }
+      }
+      else if (t.type === 'Refund') {
+          actType = 'Refund';
+          actionText = 'Hoàn điểm';
+          taskName = (t.description || '').replace('Hoàn điểm: ', '').trim();
+      }
+      // 'Cancelled' là dữ liệu của bản vá trước khi có bảng reward_redemptions.
+      else if (t.type === 'Cancelled') {
+          actType = 'Cancelled';
+          actionText = 'Đã huỷ';
+          rStatus = 'Đã huỷ';
+          taskName = (t.description || '').replace('[Đã huỷ] Đổi quà: ', '').trim();
       }
       else if (t.type === 'Penalty') { 
           actType = 'Penalty'; 
@@ -984,22 +1352,19 @@ async function loadHistoryData(force = false) {
               taskName = taskName.replace('Bị phạt lỗi: ', '').trim();
           }
       }
-      else if (t.type === 'Bonus_Pending') {
-          actType = 'Bonus_Pending';
-          actionText = 'Chờ nhận';
-          taskName = t.description;
-          if (taskName.startsWith('[Chờ nhận] ')) {
-              taskName = taskName.replace('[Chờ nhận] Thưởng điểm: ', '').trim();
-          }
-      }
-      else { 
-          actType = 'Earn'; 
+      else {
+          actType = 'Earn';
           if (taskName.startsWith('Được duyệt: ')) {
               actionText = 'Được duyệt';
               taskName = taskName.replace('Được duyệt: ', '').trim();
           } else if (taskName.startsWith('Duyệt việc: ')) {
               actionText = 'Được duyệt';
               taskName = taskName.replace('Duyệt việc: ', '').trim();
+          } else if (taskName.startsWith('Thưởng điểm: ')) {
+              // Quà tặng điểm đã được nhận -> vẫn thuộc lịch sử phần thưởng.
+              actionText = 'Quà điểm';
+                  rStatus = 'Đã nhận';
+              taskName = taskName.replace('Thưởng điểm: ', '').trim();
           }
       }
 
@@ -1133,9 +1498,9 @@ function renderHistoryTabItems() {
           icon = 'fa-triangle-exclamation'; valClass = 'text-red-500'; sign = '-'; 
           bgAcc = 'bg-red-500'; iconBg = 'bg-red-500/10 text-red-500'; pillClass = 'bg-red-500/10 text-red-500 border-red-500/20';
       }
-      else if (item.type === 'Bonus_Pending') {
-          icon = 'fa-gift'; valClass = 'text-primary'; sign = '+';
-          bgAcc = 'bg-primary'; iconBg = 'bg-primary/10 text-primary'; pillClass = 'bg-primary/10 text-primary border-primary/20';
+      else if (item.type === 'Cancelled' || item.type === 'Refund') {
+          icon = 'fa-rotate-left'; valClass = 'text-muted'; sign = '+';
+          bgAcc = 'bg-gray-500'; iconBg = 'bg-gray-500/10 text-muted'; pillClass = 'bg-surface text-muted border-borderline';
       }
 
       let claimBtn = '';
@@ -1147,9 +1512,6 @@ function renderHistoryTabItems() {
          if (diffDays <= familySettings.claim_max_days && (item.username_raw === currentUser.username || currentUser.role !== 'User')) {
              claimBtn = `<button onclick="openClaimModal('${item.taskId}', '${item.taskName.replace(/'/g, "\\'")}', '${item.periodId}', '${dateStr}')" class="mt-2 w-full bg-orange-500/10 text-orange-500 border border-orange-500/20 py-1.5 rounded-lg text-xs font-bold active-scale hover:bg-orange-500 hover:text-white transition-colors flex items-center justify-center gap-1.5"><i class="fa-solid fa-rotate-left"></i> Claim ngay</button>`;
          }
-      }
-      else if (item.type === 'Bonus_Pending' && item.username_raw === currentUser.username) {
-         claimBtn = `<button onclick="confirmBonusReward('${item.id}', ${item.amount})" class="mt-2 w-full bg-primary/10 text-primary border border-primary/20 py-1.5 rounded-lg text-xs font-bold active-scale hover:bg-primary hover:text-white transition-colors flex items-center justify-center gap-1.5"><i class="fa-solid fa-gift"></i> Xác nhận nhận</button>`;
       }
 
       pHtml.push(`
@@ -1190,47 +1552,75 @@ function renderHistoryTabItems() {
     pContainer.innerHTML = pHtml.join('');
   }
 
-  // Render Rewards History
+  // Render Rewards History - đọc từ bảng trạng thái, không suy ra từ mô tả giao dịch.
   const rContainer = document.getElementById('history-rewards-list');
-  const rewardItems = historyItems.filter(i => i.type === 'Spend');
-  if (rewardItems.length === 0) {
-    rContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa đổi món quà nào.</div>';
+  const redemptions = (window._lastRedemptions || []).filter(r => filterUser === 'all' || r.username === filterUser);
+  if (redemptions.length === 0) {
+    rContainer.innerHTML = '<div class="text-center text-muted py-8 text-sm">Chưa có phần thưởng nào.</div>';
   } else {
-    const rHtml = [];
-    rewardItems.forEach(item => {
-      const dateStr = item.date.toLocaleDateString('vi-VN');
-      
-      let actionHtml = '';
-      let statusBadge = '';
-      
-      if (item.rStatus === 'Chờ trao') {
-          statusBadge = `<span class="bg-amber-500/10 text-amber-500 text-[10px] px-1.5 py-0.5 rounded border border-amber-500/20 font-bold ml-2">Chờ trao</span>`;
-          if (isAdminOrMod()) {
-              actionHtml = `<button onclick="updateRewardStatus('${item.id}', '[Đã trao]')" class="mt-2 text-xs bg-primary text-white px-3 py-1.5 rounded-lg font-bold shadow active-scale w-full text-center">Xác nhận đã trao quà</button>`;
-          }
-      } else if (item.rStatus === 'Đã trao') {
-          statusBadge = `<span class="bg-blue-500/10 text-blue-500 text-[10px] px-1.5 py-0.5 rounded border border-blue-500/20 font-bold ml-2">Đang giao</span>`;
-          if (currentUser.username === item.username_raw || isAdminOrMod()) {
-              actionHtml = `<button onclick="updateRewardStatus('${item.id}', 'Đã nhận')" class="mt-2 text-xs bg-success text-white px-3 py-1.5 rounded-lg font-bold shadow active-scale w-full text-center">Xác nhận đã nhận quà</button>`;
-          }
-      } else {
-          statusBadge = `<span class="bg-success/10 text-success text-[10px] px-1.5 py-0.5 rounded border border-success/20 font-bold ml-2">Hoàn tất</span>`;
-      }
-
-      rHtml.push(`
-            <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-start justify-between gap-3 hover:border-amber-500/30 transition-all hover:shadow-md group">
-                <div class="w-12 h-12 shrink-0 rounded-2xl bg-amber-500/10 flex items-center justify-center text-2xl text-amber-500 shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid fa-gift"></i></div>
-                <div class="flex-1 min-w-0 ml-1">
-                    ${filterUser === 'all' ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${item.userName}</div>` : ''}
-                    <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug mb-1">${item.taskName}${statusBadge}</div>
-                    <span class="text-[10px] text-muted flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}</span>
-                    ${actionHtml}
-                </div>
-                <div class="font-black text-sm text-yellow-500 bg-amber-500/10 px-3 py-1.5 rounded-xl border border-yellow-500/20 shadow-inner mt-1 self-start">-${item.amount}</div>
-            </div>`);
-    });
-    rContainer.innerHTML = rHtml.join('');
+    rContainer.innerHTML = redemptions.map(r => renderRedemptionCard(r, { showUser: filterUser === 'all' })).join('');
   }
+}
+
+// Một thẻ đơn quà, dùng chung cho tab Lịch sử và tab Trao quà của admin.
+function renderRedemptionCard(r, opts = {}) {
+  const showUser = !!opts.showUser;
+  const isOwner = r.username === currentUser.username;
+  const isGrant = r.kind === 'grant';
+  const meta = REDEMPTION_STATUS[r.status] || { text: r.status, cls: 'bg-surface text-muted border-borderline' };
+  const dateStr = new Date(r.created_at).toLocaleDateString('vi-VN');
+  const userLabel = (window._lastHistoryUsersList || []).concat(window._lastAdminUsersList || [])
+      .reduce((acc, u) => (u.username === r.username && u.name) ? u.name : acc, r.username);
+
+  let iconWrap = 'bg-amber-500/10 text-amber-500', iconName = 'fa-gift';
+  let amountWrap = 'text-yellow-500 bg-amber-500/10 border-yellow-500/20', amountText = `-${r.cost}`;
+  if (isGrant) {
+    iconWrap = 'bg-primary/10 text-primary';
+    amountWrap = 'text-primary bg-primary/10 border-primary/20';
+    amountText = `+${r.cost}`;
+  }
+  if (r.status === 'cancelled' || r.status === 'revoked') {
+    iconWrap = 'bg-gray-500/10 text-muted'; iconName = 'fa-rotate-left';
+    amountWrap = 'text-muted bg-surface border-borderline';
+    amountText = r.status === 'cancelled' ? `+${r.cost}` : `${r.cost}`;
+  }
+
+  const btn = (label, fn, cls) =>
+    `<button onclick="${fn}(${Number(r.id)})" class="flex-1 text-xs px-3 py-1.5 rounded-lg font-bold active-scale text-center ${cls}">${label}</button>`;
+  const ghost = 'bg-surface text-muted border border-borderline hover:border-red-500/40 hover:text-red-500 transition-colors';
+
+  const actions = [];
+  if (r.status === 'pending_delivery') {
+    if (isAdminOrMod()) actions.push(btn('Đã trao quà', 'markRedemptionDelivered', 'bg-primary text-white shadow'));
+    // Chưa trao thì cả chính chủ lẫn Admin đều huỷ được để lấy lại điểm.
+    if (isOwner || isAdminOrMod()) actions.push(btn('Huỷ &amp; hoàn điểm', 'cancelRedemption', ghost));
+  } else if (r.status === 'delivered') {
+    // Chính chủ xác nhận là đường chính; Admin đóng hộ để đơn không treo mãi.
+    if (isOwner) actions.push(btn('Mình đã nhận quà', 'completeRedemption', 'bg-success text-white shadow'));
+    else if (isAdminOrMod()) actions.push(btn('Đóng đơn hộ', 'completeRedemption', 'bg-surface text-main border border-borderline hover:border-success/40 hover:text-success transition-colors'));
+    if (isAdminOrMod()) actions.push(btn('Huỷ &amp; hoàn điểm', 'cancelRedemption', ghost));
+  } else if (r.status === 'pending_claim') {
+    if (isOwner) actions.push(btn('Nhận ngay', 'claimPointGrant', 'bg-primary text-white shadow'));
+    else if (isAdminOrMod()) actions.push(btn('Thu hồi', 'revokePointGrant', ghost));
+  }
+
+  const waitedDays = Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400000);
+  const openStatus = (r.status === 'pending_delivery' || r.status === 'delivered' || r.status === 'pending_claim');
+  const waitBadge = (openStatus && waitedDays >= 3)
+    ? `<span class="text-[10px] font-bold text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20 ml-1">Đã chờ ${waitedDays} ngày</span>` : '';
+
+  return `
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-start justify-between gap-3 hover:border-amber-500/30 transition-all hover:shadow-md group mb-3">
+            <div class="w-12 h-12 shrink-0 rounded-2xl ${iconWrap} flex items-center justify-center text-2xl shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid ${iconName}"></i></div>
+            <div class="flex-1 min-w-0 ml-1">
+                ${showUser ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${escHtml(userLabel)}</div>` : ''}
+                <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug mb-1">${escHtml(r.reward_name)}<span class="text-[10px] px-1.5 py-0.5 rounded border font-bold ml-2 ${meta.cls}">${escHtml(meta.text)}</span></div>
+                ${r.user_note ? `<div class="text-[10px] text-muted italic bg-surface rounded px-2 py-1 mb-1 inline-block">Ghi chú: ${escHtml(r.user_note)}</div>` : ''}
+                <span class="text-[10px] text-muted flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}${waitBadge}</span>
+                ${actions.length ? `<div class="flex gap-2 mt-2">${actions.join('')}</div>` : ''}
+            </div>
+            <div class="font-black text-sm px-3 py-1.5 rounded-xl border shadow-inner mt-1 self-start ${amountWrap}">${amountText}</div>
+        </div>`;
 }
 
 function switchReportTab(tab) {
@@ -1336,6 +1726,8 @@ function renderReportFromCache() {
     if (reportData[t.username]) {
       if (t.type === 'Earn') reportData[t.username].earned += t.amount;
       if (t.type === 'Spend') reportData[t.username].spent += t.amount;
+      // Đơn bị huỷ đã hoàn điểm -> không tính là đã tiêu nữa.
+      if (t.type === 'Refund') reportData[t.username].spent -= t.amount;
       if (t.type === 'Penalty') reportData[t.username].penalty += t.amount;
     }
   });
@@ -1734,23 +2126,30 @@ async function loadRewardApprovals() {
   showLoading(true);
   let usersQuery = supabaseClient.from('users').select('*');
   if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
-  const { data: usersData } = await usersQuery;
-  const familyUsernames = (usersData || []).map(u => u.username);
-  
-  // Fetch pending reward deliveries AND point reward items in parallel
-  let transAllQuery = supabaseClient.from('transactions').select('*').eq('type', 'Spend').order('created_at', { ascending: false });
-  if (familyUsernames.length > 0) transAllQuery = transAllQuery.in('username', familyUsernames);
-  
+
   let pointRewardsQuery = supabaseClient.from('rewards').select('*').is('is_point_reward', true);
   if (getFamilyId()) pointRewardsQuery = pointRewardsQuery.eq('family_id', getFamilyId());
-  
-  const [{ data: transAll, error }, { data: pointRewards }] = await Promise.all([transAllQuery, pointRewardsQuery]);
-  showLoading(false);
-  
-  const container = document.getElementById('admin-list-container');
-  if (error) return showToast(error.message, 'error');
 
-  // Section 1: Point Rewards (Trao thưởng điểm)
+  const [{ data: usersData }, { data: pointRewards }] = await Promise.all([usersQuery, pointRewardsQuery]);
+  window._lastAdminUsersList = usersData || [];
+  const familyUsernames = (usersData || []).map(u => u.username);
+
+  // Đơn đang mở đọc thẳng theo status - không phải tải cả lịch sử rồi lọc ở client.
+  let openQuery = supabaseClient.from('reward_redemptions').select('*')
+      .in('status', ['pending_delivery', 'delivered', 'pending_claim'])
+      .order('created_at', { ascending: true });
+  if (familyUsernames.length > 0) openQuery = openQuery.in('username', familyUsernames);
+
+  const { data: openItems, error } = await openQuery;
+  showLoading(false);
+
+  const container = document.getElementById('admin-list-container');
+  if (error) { container.innerHTML = rewardSchemaWarning(error); return; }
+
+  const grants = (openItems || []).filter(r => r.kind === 'grant');
+  const orders = (openItems || []).filter(r => r.kind === 'spend');
+
+  // Mục 1: trao thưởng điểm
   let pointRewardsHtml = '';
   if (pointRewards && pointRewards.length > 0) {
     pointRewardsHtml = `
@@ -1764,80 +2163,54 @@ async function loadRewardApprovals() {
         </div>
         <div class="grid grid-cols-2 gap-2">
           ${pointRewards.map(r => `
-            <button onclick="openGrantByRewardModal('${r.id}', '${r.reward_name.replace(/'/g, "\\'")}', ${r.cost})" 
+            <button onclick="openGrantByRewardModal('${escJsAttr(r.id)}', '${escJsAttr(r.reward_name)}', ${Number(r.cost) || 0})"
               class="bg-gradient-to-br from-primary/5 to-purple-500/5 border-2 border-primary/20 rounded-2xl p-4 text-center active-scale hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10 transition-all group">
-              <div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-2 text-2xl group-hover:scale-110 transition-transform"><i class="${r.icon || 'fa-solid fa-gift'} text-primary"></i></div>
-              <div class="font-bold text-main text-sm mb-1">${r.reward_name}</div>
-              <div class="text-primary font-black text-base">+${r.cost} pts</div>
+              <div class="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-2 text-2xl group-hover:scale-110 transition-transform"><i class="${escHtml(r.icon || 'fa-solid fa-gift')} text-primary"></i></div>
+              <div class="font-bold text-main text-sm mb-1">${escHtml(r.reward_name)}</div>
+              <div class="text-primary font-black text-base">+${Number(r.cost) || 0} pts</div>
               <div class="text-[10px] text-muted mt-1"><i class="fa-solid fa-paper-plane mr-1"></i>Bấm để trao</div>
             </button>
           `).join('')}
         </div>
-      </div>
-      <div class="relative my-5">
-        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-borderline"></div></div>
-        <div class="relative flex justify-center"><span class="bg-[var(--bg-dark)] px-3 text-[10px] font-bold text-muted uppercase tracking-wider">Quà đang chờ trao</span></div>
       </div>`;
-  }
-
-  // Section 2: Pending physical reward deliveries  
-  const trans = (transAll || []).filter(t => t.description && t.description.startsWith('[Chờ trao]'));
-  
-  let pendingHtml = '';
-  if (trans.length === 0) {
-    pendingHtml = '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl flex flex-col items-center gap-2"><i class="fa-solid fa-check-circle text-success text-2xl"></i>Tuyệt vời! Không có quà nào chờ trao.</div>';
   } else {
-    pendingHtml = trans.map(item => {
-      let taskName = item.description.replace('[Chờ trao] Đổi quà: ', '').trim();
-      let uName = item.username;
-      if (usersData) {
-          let uObj = usersData.find(u => u.username === item.username);
-          if (uObj && uObj.name) uName = uObj.name;
-      }
-
-      return `
-          <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-amber-500/50 transition-all mb-3">
-              <div class="flex justify-between items-start mb-2">
-                  <div class="flex items-start gap-3">
-                      <div class="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="fa-solid fa-gift"></i></div>
-                      <div>
-                          <h4 class="font-bold text-main text-sm max-w-[150px] leading-tight mb-1">${taskName}</h4>
-                          <div class="text-xs text-muted">Người nhận: <span class="text-main font-bold">${uName}</span></div>
-                          <div class="text-[10px] text-muted mt-1"><i class="fa-regular fa-clock"></i> ${new Date(item.created_at).toLocaleDateString('vi-VN')}</div>
-                      </div>
-                  </div>
-                  <div class="text-yellow-500 font-black text-sm bg-amber-500/10 px-2 py-1 rounded border border-yellow-500/20">-${item.amount}</div>
-              </div>
-              <div class="mt-4">
-                  <button onclick="updateRewardStatus('${item.id}', '[Đã trao]')" class="w-full py-2.5 rounded-xl bg-primary text-white text-xs font-bold active-scale shadow-lg shadow-primary/30"><i class="fa-solid fa-hand-holding-heart mr-1.5"></i> Xác nhận đã trao quà</button>
-              </div>
-          </div>`;
-    }).join('');
+    pointRewardsHtml = '<div class="text-center text-muted py-4 text-xs bg-card border border-dashed border-borderline rounded-2xl mb-4">Chưa có gói thưởng điểm nào. Vào <b>Phần thưởng</b> để thêm.</div>';
   }
 
-  container.innerHTML = pointRewardsHtml + pendingHtml;
+  // Mục 2: điểm đã trao, chờ người nhận bấm nhận
+  let grantsHtml = '';
+  if (grants.length > 0) {
+    grantsHtml = sectionDivider(`Đã trao, chờ nhận (${grants.length})`)
+      + grants.map(g => renderRedemptionCard(g, { showUser: true })).join('');
+  }
+
+  // Mục 3: đơn đổi quà đang mở
+  let ordersHtml = sectionDivider(`Đơn đổi quà đang mở (${orders.length})`);
+  if (orders.length === 0) {
+    ordersHtml += '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl flex flex-col items-center gap-2"><i class="fa-solid fa-check-circle text-success text-2xl"></i>Tuyệt vời! Không có đơn nào đang chờ.</div>';
+  } else {
+    ordersHtml += orders.map(o => renderRedemptionCard(o, { showUser: true })).join('');
+  }
+
+  container.innerHTML = pointRewardsHtml + grantsHtml + ordersHtml;
 }
 
-async function updateRewardStatus(transactionId, newStatus) {
-  showLoading(true);
-  const { data: tData } = await supabaseClient.from('transactions').select('description').eq('id', transactionId).single();
-  if (!tData) {
-      showLoading(false);
-      return showToast('Không tìm thấy giao dịch!', 'error');
-  }
-  let baseName = tData.description.replace('[Chờ trao] Đổi quà: ', '').replace('[Đã trao] Đổi quà: ', '').replace('Đổi quà: ', '').trim();
-  let newDesc = newStatus === 'Đã nhận' ? `Đổi quà: ${baseName}` : `${newStatus} Đổi quà: ${baseName}`;
-  const { error } = await supabaseClient.from('transactions').update({ description: newDesc }).eq('id', transactionId);
-  showLoading(false);
-  if (error) {
-      return showToast('Lỗi khi cập nhật!', 'error');
-  }
-  showToast('Cập nhật trạng thái thành công!', 'success');
-  if (document.getElementById('view-admin').classList.contains('hidden') === false && currentAdminType === 'reward_approvals') {
-      loadAdminData('reward_approvals');
-  } else {
-      loadHistoryData();
-  }
+function sectionDivider(label) {
+  return `
+      <div class="relative my-5">
+        <div class="absolute inset-0 flex items-center"><div class="w-full border-t border-borderline"></div></div>
+        <div class="relative flex justify-center"><span class="bg-[var(--bg-dark)] px-3 text-[10px] font-bold text-muted uppercase tracking-wider">${escHtml(label)}</span></div>
+      </div>`;
+}
+
+// Bảng/hàm mới chưa có -> nói thẳng phải chạy migration, đừng để màn hình trắng.
+function rewardSchemaWarning(error) {
+  return `
+    <div class="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 text-sm">
+      <div class="font-bold text-red-500 mb-1"><i class="fa-solid fa-triangle-exclamation mr-1.5"></i>Chưa chạy migration</div>
+      <p class="text-main text-xs leading-relaxed">Tính năng phần thưởng cần bảng <b>reward_redemptions</b>. Mở Supabase → SQL Editor và chạy toàn bộ file <b>migration_reward_flow.sql</b> trong thư mục dự án, rồi tải lại trang.</p>
+      <p class="text-[10px] text-muted mt-2 break-words">Chi tiết: ${escHtml((error && error.message) || '')}</p>
+    </div>`;
 }
 
 function setApprovalFilter(status) {
@@ -1954,14 +2327,14 @@ async function approveTask(logId, isApproved, username, points, taskName, calcAd
       if (!condResult.hasConditions) {
         // No condition tasks for this period → award immediately (old behavior)
         if (finalPoints > 0) {
-          await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username);
+          await adjustUserPoints(username, finalPoints);
           await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: transactionDesc }]);
         }
         await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', logId);
       } else if (condResult.allMet) {
         // All conditions met → award this task + any deferred tasks
         if (finalPoints > 0) {
-          await supabaseClient.from('users').update({ points: uData.points + finalPoints }).eq('username', username);
+          await adjustUserPoints(username, finalPoints);
           await supabaseClient.from('transactions').insert([{ username: username, type: 'Earn', amount: finalPoints, description: transactionDesc }]);
         }
         await supabaseClient.from('task_logs').update({ points_awarded: true }).eq('id', logId);
@@ -1973,6 +2346,7 @@ async function approveTask(logId, isApproved, username, points, taskName, calcAd
       }
     }
   }
+  invalidateDataCaches(); refreshPendingBadges();
   refreshUserPoints(); showLoading(false); showToast(isApproved ? 'Đã xử lý!' : 'Đã từ chối.', isApproved ? 'success' : 'error'); loadApprovals();
 }
 
@@ -2008,8 +2382,20 @@ function renderAdminList(type, data, extraHtml = '') {
     }
     else if (type === 'rewards') {
       id = item.id; title = item.reward_name;
-      let badge = item.is_point_reward ? ' <span class="bg-primary/10 text-primary px-1.5 rounded text-[10px]">🎁 Thưởng điểm</span>' : '';
-      subtitle = `<span class="text-yellow-500 font-bold">${item.cost} pts</span>${badge}`;
+      let badge = item.is_point_reward
+        ? ' <span class="bg-primary/10 text-primary px-1.5 rounded text-[10px] ml-1">🎁 Tặng điểm</span>'
+        : ' <span class="bg-amber-500/10 text-amber-500 px-1.5 rounded text-[10px] ml-1">🛒 Quà đổi</span>';
+      if (!item.is_point_reward) {
+        if (item.active === false) badge += ' <span class="bg-surface text-muted px-1.5 rounded text-[10px] ml-1 border border-borderline">Tạm ngưng</span>';
+        if (item.stock !== null && item.stock !== undefined) {
+          badge += Number(item.stock) > 0
+            ? ` <span class="text-muted text-[10px] ml-1">· còn ${item.stock}</span>`
+            : ' <span class="bg-red-500/10 text-red-500 px-1.5 rounded text-[10px] ml-1">Hết hàng</span>';
+        }
+        if (item.max_per_week) badge += ` <span class="text-muted text-[10px] ml-1">· tối đa ${item.max_per_week}/tuần</span>`;
+      }
+      const costLabel = item.is_point_reward ? `+${item.cost} pts` : `${item.cost} pts`;
+      subtitle = `<span class="text-yellow-500 font-bold">${costLabel}</span>${badge}`;
       prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-gift'}"></i></div>`;
       // Point reward granting is now done from 'Trao quà' tab, not here
     }
@@ -2065,6 +2451,17 @@ function handleFreqChange() {
             <input id="inp-tsched" type="date" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3">
         `;
   }
+}
+
+// Gói tặng điểm không có khái niệm tồn kho / giới hạn đổi -> ẩn cho đỡ rối,
+// và đổi nhãn ô số điểm cho đúng nghĩa (phải trả vs. được tặng).
+function toggleRewardKind() {
+  const cb = document.getElementById('inp-is-point-reward');
+  const block = document.getElementById('reward-stock-block');
+  const lbl = document.getElementById('lbl-rcost');
+  if (!cb) return;
+  if (block) block.classList.toggle('hidden', cb.checked);
+  if (lbl) lbl.innerText = cb.checked ? 'SỐ ĐIỂM ĐƯỢC TẶNG' : 'GIÁ ĐỔI QUÀ (ĐIỂM PHẢI TRẢ)';
 }
 
 function selectIcon(iconClass) {
@@ -2146,13 +2543,31 @@ function openModal(type, item = null) {
     body.innerHTML = `
             <input id="inp-rname" type="text" placeholder="Tên quà" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-medium outline-none mb-3" value="${item ? item.reward_name : ''}">
             ${iconGridHtml}
-            <label class="block text-[10px] text-muted mb-1 mt-3 font-bold">GIÁ ĐỔI QUÀ / ĐIỂM THƯỞNG</label>
-            <input id="inp-rcost" type="number" placeholder="Pts" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-yellow-500" value="${item ? item.cost : ''}">
-            <div class="mt-4 flex items-center gap-2">
-                <input id="inp-is-point-reward" type="checkbox" class="w-4 h-4 rounded text-primary focus:ring-primary focus:ring-offset-surface bg-input border-borderline" ${item && item.is_point_reward ? 'checked' : ''}>
-                <label for="inp-is-point-reward" class="text-sm text-main font-medium cursor-pointer">Là phần thưởng tặng điểm</label>
+            <label id="lbl-rcost" class="block text-[10px] text-muted mb-1 mt-3 font-bold">GIÁ ĐỔI QUÀ (ĐIỂM PHẢI TRẢ)</label>
+            <input id="inp-rcost" type="number" min="1" placeholder="Pts" class="w-full bg-input border border-borderline rounded-xl px-4 py-3.5 text-main text-sm font-black outline-none text-yellow-500" value="${item ? item.cost : ''}">
+            <div class="mt-4 flex items-center gap-2 bg-surface rounded-xl p-3 border border-borderline">
+                <input id="inp-is-point-reward" type="checkbox" onchange="toggleRewardKind()" class="w-4 h-4 rounded text-primary focus:ring-primary focus:ring-offset-surface bg-input border-borderline" ${item && item.is_point_reward ? 'checked' : ''}>
+                <label for="inp-is-point-reward" class="text-sm text-main font-medium cursor-pointer flex-1">Là gói <b>tặng điểm</b> (Admin trao, không phải quà để đổi)</label>
+            </div>
+            <div id="reward-stock-block" class="mt-4 space-y-3">
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tồn kho</label>
+                        <input id="inp-rstock" type="number" min="0" placeholder="Không giới hạn" class="w-full bg-input border border-borderline rounded-xl px-3 py-3 text-main text-sm font-bold outline-none" value="${item && item.stock !== null && item.stock !== undefined ? item.stock : ''}">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tối đa / tuần</label>
+                        <input id="inp-rmaxweek" type="number" min="1" placeholder="Không giới hạn" class="w-full bg-input border border-borderline rounded-xl px-3 py-3 text-main text-sm font-bold outline-none" value="${item && item.max_per_week !== null && item.max_per_week !== undefined ? item.max_per_week : ''}">
+                    </div>
+                </div>
+                <p class="text-[9px] text-muted opacity-70">Để trống là không giới hạn. Tồn kho tự trừ khi có người đổi và tự cộng lại khi đơn bị huỷ.</p>
+                <div class="flex items-center gap-2">
+                    <input id="inp-ractive" type="checkbox" class="w-4 h-4 rounded text-primary bg-input border-borderline" ${!item || item.active !== false ? 'checked' : ''}>
+                    <label for="inp-ractive" class="text-sm text-main font-medium cursor-pointer">Đang mở cho đổi</label>
+                </div>
             </div>
         `;
+    setTimeout(toggleRewardKind, 20);
     setTimeout(() => { selectIcon(item && item.icon ? item.icon : ICONS[19]); }, 10);
   } else if (type === 'holidays') {
     let scheduleVal = item ? item.schedule : '';
@@ -2242,9 +2657,10 @@ async function claimTask(taskId, periodId, reason) {
         showToast('Lỗi khi claim: ' + error.message, 'error');
     } else {
         closeClaimModal();
+        invalidateDataCaches();
         showToast('Đã gửi yêu cầu claim!', 'success');
         if (typeof loadHistoryData === 'function' && document.getElementById('view-history').classList.contains('hidden') === false) {
-            loadHistoryData();
+            loadHistoryData(true);
         }
     }
 }
@@ -2286,7 +2702,23 @@ async function saveData(type, id) {
       else { const res = await supabaseClient.from('tasks').insert([data]); error = res.error; }
     } else if (type === 'rewards') {
       const is_point = document.getElementById('inp-is-point-reward') ? document.getElementById('inp-is-point-reward').checked : false;
-      const data = { reward_name: document.getElementById('inp-rname').value, icon: document.getElementById('inp-icon').value, cost: document.getElementById('inp-rcost').value, is_point_reward: is_point, family_id: getFamilyId() };
+      const name = document.getElementById('inp-rname').value.trim();
+      const cost = parseInt(document.getElementById('inp-rcost').value, 10);
+      if (!name) { showLoading(false); return showToast('Nhập tên phần thưởng nhé!', 'error'); }
+      if (!cost || cost <= 0) { showLoading(false); return showToast('Nhập số điểm lớn hơn 0!', 'error'); }
+      const rawStock = (document.getElementById('inp-rstock') || {}).value;
+      const rawMax = (document.getElementById('inp-rmaxweek') || {}).value;
+      const data = {
+        reward_name: name,
+        icon: document.getElementById('inp-icon').value,
+        cost: cost,
+        is_point_reward: is_point,
+        // Tồn kho và giới hạn tuần chỉ áp dụng cho quà để đổi.
+        stock: (is_point || rawStock === '' || rawStock === undefined) ? null : parseInt(rawStock, 10),
+        max_per_week: (is_point || rawMax === '' || rawMax === undefined) ? null : parseInt(rawMax, 10),
+        active: document.getElementById('inp-ractive') ? document.getElementById('inp-ractive').checked : true,
+        family_id: getFamilyId()
+      };
       if (id) { const res = await supabaseClient.from('rewards').update(data).eq('id', id); error = res.error; }
       else { const res = await supabaseClient.from('rewards').insert([data]); error = res.error; }
     } else if (type === 'violations') {
@@ -2335,60 +2767,102 @@ async function saveAdjustPoints() {
   if (!reason) return showToast('Vui lòng nhập lý do!', 'error');
 
   showLoading(true);
-  const { data: uData } = await supabaseClient.from('users').select('points').eq('username', window.currentAdjustUser).single();
-  if (uData) {
-    const newPoints = type === 'add' ? uData.points + amount : Math.max(0, uData.points - amount);
-    const logType = type === 'add' ? 'Earn' : 'Penalty';
-    await supabaseClient.from('users').update({ points: newPoints }).eq('username', window.currentAdjustUser);
-    await supabaseClient.from('transactions').insert([{ username: window.currentAdjustUser, type: logType, amount: amount, description: `[Admin/Mod] ${reason}` }]);
-  }
+  const logType = type === 'add' ? 'Earn' : 'Penalty';
+  const adjRes = await adjustUserPoints(window.currentAdjustUser, type === 'add' ? amount : -amount);
+  if (adjRes.error) { showLoading(false); return showToast(adjRes.error, 'error'); }
+  await supabaseClient.from('transactions').insert([{ username: window.currentAdjustUser, type: logType, amount: amount, description: `[Admin/Mod] ${reason}` }]);
   showLoading(false);
+  invalidateDataCaches();
   showToast('Cập nhật điểm cái rẹt thành công!', 'mega-success');
   closeAdjustModal(); loadAdminData('users');
 }
 
 
+// Mở từ tab Thành viên: đã biết người nhận, cần chọn gói thưởng.
 async function openGrantBonusModal(username, name) {
-  // Legacy: called from users tab - keep backward compat
-  openGrantByRewardModal(null, null, null, username, name);
+  return openGrantByRewardModal(null, null, null, username, name);
 }
 
+// Modal trao thưởng điểm, chạy được ở 2 chiều:
+//  - Biết phần thưởng (từ tab Trao quà) -> chọn người nhận.
+//  - Biết người nhận (từ tab Thành viên) -> chọn gói thưởng.
 async function openGrantByRewardModal(rewardId, rewardName, points, preselectedUser, preselectedName) {
-  window.currentGrantRewardId = rewardId;
-  window.currentGrantRewardName = rewardName;
-  window.currentGrantPoints = points;
+  window.currentGrantRewardId = rewardId || null;
+  window.currentGrantRewardName = rewardName || null;
+  window.currentGrantPoints = (points === null || points === undefined) ? null : Number(points);
+  window.currentGrantUser = preselectedUser || null;
+  window.currentGrantUserName = preselectedName || null;
 
-  document.getElementById('grant-reward-name').innerText = rewardName || 'Chọn phần thưởng';
-  document.getElementById('grant-reward-points').innerText = points ? `+${points} điểm` : '';
+  const titleEl = document.getElementById('grant-reward-name');
+  const subEl = document.getElementById('grant-reward-points');
+  const labelEl = document.getElementById('grant-list-label');
+  const container = document.getElementById('grant-user-list');
+  container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Đang tải...</div>';
 
-  // Load users
+  document.getElementById('grant-bonus-modal').classList.remove('hidden');
+  document.getElementById('grant-bonus-modal').classList.add('flex');
+
+  if (preselectedUser && !rewardId) {
+    // Chiều 2: chọn gói thưởng cho người đã biết.
+    titleEl.innerText = preselectedName || preselectedUser;
+    subEl.innerText = 'Chọn gói thưởng để trao';
+    if (labelEl) labelEl.innerText = 'CHỌN GÓI THƯỞNG ĐIỂM';
+
+    let rq = supabaseClient.from('rewards').select('*').is('is_point_reward', true);
+    if (getFamilyId()) rq = rq.eq('family_id', getFamilyId());
+    const { data: rewards } = await rq;
+
+    if (!rewards || rewards.length === 0) {
+      container.innerHTML = '<div class="text-center text-muted py-6 text-sm leading-relaxed">Chưa có gói thưởng điểm nào.<br><span class="text-[11px]">Vào <b>Quản trị → Phần thưởng</b>, thêm mới và tick <b>"Là phần thưởng tặng điểm"</b>.</span></div>';
+      return;
+    }
+    container.innerHTML = rewards.map(r => `
+        <button onclick="selectGrantReward('${escJsAttr(r.id)}', '${escJsAttr(r.reward_name)}', ${Number(r.cost) || 0})" class="w-full flex items-center gap-3 p-3 bg-surface rounded-2xl border border-borderline hover:border-primary/40 hover:bg-primary/5 active-scale transition-all">
+          <div class="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary"><i class="${escHtml(r.icon || 'fa-solid fa-gift')}"></i></div>
+          <div class="flex-1 text-left">
+            <div class="font-bold text-main text-sm">${escHtml(r.reward_name)}</div>
+            <div class="text-[10px] text-muted">Tặng +${Number(r.cost) || 0} điểm</div>
+          </div>
+          <div class="text-primary text-xs font-bold"><i class="fa-solid fa-paper-plane"></i></div>
+        </button>`).join('');
+    return;
+  }
+
+  // Chiều 1: chọn người nhận cho phần thưởng đã biết.
+  titleEl.innerText = rewardName || 'Chọn phần thưởng';
+  subEl.innerText = points ? `+${points} điểm` : '';
+  if (labelEl) labelEl.innerText = 'CHỌN THÀNH VIÊN NHẬN';
+
   let usersQuery = supabaseClient.from('users').select('*');
   if (getFamilyId()) usersQuery = usersQuery.eq('family_id', getFamilyId());
   const { data: users } = await usersQuery;
 
-  const container = document.getElementById('grant-user-list');
-
   if (!users || users.length === 0) {
     container.innerHTML = '<div class="text-center text-muted py-4 text-sm">Không có thành viên nào.</div>';
-  } else {
-    container.innerHTML = users.map(u => {
-      const avatarHtml = u.avatar && u.avatar.trim() !== ''
-        ? `<img src="${u.avatar}" class="w-9 h-9 rounded-full object-cover">`
-        : `<div class="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-purple-500 flex items-center justify-center text-white text-sm font-bold">${u.name.charAt(0)}</div>`;
-      return `
-        <button onclick="grantBonusToUser('${u.username}', '${u.name.replace(/'/g, "\\'")}')" class="w-full flex items-center gap-3 p-3 bg-surface rounded-2xl border border-borderline hover:border-primary/40 hover:bg-primary/5 active-scale transition-all">
-          ${avatarHtml}
-          <div class="flex-1 text-left">
-            <div class="font-bold text-main text-sm">${u.name}</div>
-            <div class="text-[10px] text-muted">${u.role} · ${u.points} pts</div>
-          </div>
-          <div class="text-primary text-xs font-bold"><i class="fa-solid fa-paper-plane"></i></div>
-        </button>`;
-    }).join('');
+    return;
   }
+  container.innerHTML = users.map(u => {
+    const avatarHtml = u.avatar && u.avatar.trim() !== ''
+      ? `<img src="${escHtml(u.avatar)}" class="w-9 h-9 rounded-full object-cover">`
+      : `<div class="w-9 h-9 rounded-full bg-gradient-to-tr from-primary to-purple-500 flex items-center justify-center text-white text-sm font-bold">${escHtml(u.name.charAt(0))}</div>`;
+    return `
+      <button onclick="grantBonusToUser('${escJsAttr(u.username)}', '${escJsAttr(u.name)}')" class="w-full flex items-center gap-3 p-3 bg-surface rounded-2xl border border-borderline hover:border-primary/40 hover:bg-primary/5 active-scale transition-all">
+        ${avatarHtml}
+        <div class="flex-1 text-left">
+          <div class="font-bold text-main text-sm">${escHtml(u.name)}</div>
+          <div class="text-[10px] text-muted">${escHtml(u.role)} · ${u.points} pts</div>
+        </div>
+        <div class="text-primary text-xs font-bold"><i class="fa-solid fa-paper-plane"></i></div>
+      </button>`;
+  }).join('');
+}
 
-  document.getElementById('grant-bonus-modal').classList.remove('hidden');
-  document.getElementById('grant-bonus-modal').classList.add('flex');
+// Đã biết người nhận, vừa chọn xong gói thưởng -> trao luôn.
+function selectGrantReward(rewardId, rewardName, points) {
+  window.currentGrantRewardId = rewardId;
+  window.currentGrantRewardName = rewardName;
+  window.currentGrantPoints = Number(points) || 0;
+  grantBonusToUser(window.currentGrantUser, window.currentGrantUserName);
 }
 
 function closeGrantBonusModal() {
@@ -2397,71 +2871,90 @@ function closeGrantBonusModal() {
 }
 
 async function grantBonusToUser(username, userName) {
+  if (!username) return showToast('Chưa chọn được người nhận!', 'error');
   if (!window.currentGrantRewardName || !window.currentGrantPoints) {
-    return showToast('Lỗi: không xác định được phần thưởng!', 'error');
+    return showToast('Chưa chọn được gói thưởng!', 'error');
   }
+
+  const rewardName = window.currentGrantRewardName;
+  const amount = Number(window.currentGrantPoints) || 0;
+  const ok = await customConfirm(
+    `Trao [ ${rewardName} ] (+${amount} điểm) cho ${userName}?
+
+Bạn vẫn thu hồi được khi người nhận chưa bấm nhận.`,
+    'Xác nhận trao thưởng', 'Trao ngay');
+  if (!ok) return;
 
   showLoading(true);
-  const { error } = await supabaseClient.from('transactions').insert([{
+  // Chưa cộng điểm ở bước này - điểm chỉ vào tài khoản khi người nhận bấm nhận.
+  const { error } = await supabaseClient.from('reward_redemptions').insert([{
+    family_id: getFamilyId(),
     username: username,
-    type: 'Bonus_Pending',
-    amount: window.currentGrantPoints,
-    description: `[Chờ nhận] Thưởng điểm: ${window.currentGrantRewardName}`
+    reward_id: window.currentGrantRewardId || null,
+    reward_name: rewardName,
+    cost: amount,
+    kind: 'grant',
+    status: 'pending_claim',
+    created_by: currentUser.username
   }]);
-
   showLoading(false);
-  if (error) return showToast(error.message, 'error');
+  if (error) return showToast(rewardError(error), 'error');
 
-  showToast(`🎉 Đã trao "${window.currentGrantRewardName}" (+${window.currentGrantPoints} pts) cho ${userName}!`, 'mega-success');
-  // Fire confetti for celebration
-  if (typeof confetti === 'function') {
-    confetti({ particleCount: 80, spread: 70, origin: { y: 0.7 } });
-  }
+  showToast(`🎉 Đã trao "${rewardName}" (+${amount} pts) cho ${userName}!`, 'mega-success');
+  if (typeof confetti === 'function') confetti({ particleCount: 80, spread: 70, origin: { y: 0.7 } });
   closeGrantBonusModal();
-  // Refresh the Trao quà tab if it's currently open
+  refreshRewardViews();
   if (currentAdminType === 'reward_approvals') loadAdminData('reward_approvals');
 }
 
-async function confirmBonusReward(transactionId, amount) {
+// Người nhận bấm nhận điểm thưởng. Cộng điểm + đổi trạng thái trong 1 transaction DB,
+// nên bấm bao nhiêu lần cũng chỉ cộng đúng 1 lần.
+async function claimPointGrant(redemptionId) {
   showLoading(true);
-  
-  // 1. Get transaction to update its description
-  const { data: tData } = await supabaseClient.from('transactions').select('description').eq('id', transactionId).single();
-  if (!tData) {
-      showLoading(false);
-      return showToast('Không tìm thấy giao dịch!', 'error');
-  }
-  
-  let newDesc = tData.description.replace('[Chờ nhận] ', '').trim();
-  
-  // 2. Update transaction
-  const { error: tError } = await supabaseClient.from('transactions').update({ 
-      type: 'Earn', 
-      description: newDesc 
-  }).eq('id', transactionId);
-  
-  if (tError) {
-      showLoading(false);
-      return showToast('Lỗi khi xác nhận!', 'error');
-  }
-  
-  // 3. Add points to user
-  const { data: uData } = await supabaseClient.from('users').select('points').eq('username', currentUser.username).single();
-  if (uData) {
-      const newPoints = uData.points + amount;
-      await supabaseClient.from('users').update({ points: newPoints }).eq('username', currentUser.username);
-  }
-  
+  const { data, error } = await supabaseClient.rpc('claim_point_grant', {
+    p_id: Number(redemptionId), p_username: currentUser.username
+  });
   showLoading(false);
-  showToast('\ud83c\udf89 Ch\u00fac m\u1eebng! B\u1ea1n \u0111\u00e3 nh\u1eadn \u0111\u01b0\u1ee3c +' + amount + ' \u0111i\u1ec3m th\u01b0\u1edfng!', 'mega-success');
-  // Fire confetti celebration for the recipient!
+  if (error) { refreshRewardViews(); return showToast(rewardError(error), 'error'); }
+
+  const granted = Array.isArray(data) && data[0] ? Number(data[0].granted) : 0;
+  showToast('🎉 Chúc mừng! Bạn đã nhận được +' + granted + ' điểm thưởng!', 'mega-success');
   if (typeof confetti === 'function') {
     confetti({ particleCount: 120, spread: 100, origin: { y: 0.6 } });
     setTimeout(() => confetti({ particleCount: 60, angle: 60, spread: 55, origin: { x: 0 } }), 250);
     setTimeout(() => confetti({ particleCount: 60, angle: 120, spread: 55, origin: { x: 1 } }), 400);
   }
   refreshUserPoints();
-  loadHistoryData();
+  refreshRewardViews();
+}
+
+// Admin thu hồi khoản thưởng điểm trao nhầm (chỉ khi người nhận chưa bấm nhận,
+// tức là chưa có điểm nào được cộng nên không cần hoàn).
+async function revokePointGrant(redemptionId) {
+  if (!isAdminOrMod()) return showToast('Bạn không có quyền thu hồi.', 'error');
+  const { data: r } = await supabaseClient.from('reward_redemptions').select('*').eq('id', redemptionId).single();
+  if (!r) return showToast('Không tìm thấy khoản trao này!', 'error');
+  if (r.status !== 'pending_claim') {
+    refreshRewardViews();
+    return showToast('Người nhận đã bấm nhận rồi, không thu hồi được. Dùng "Điều chỉnh điểm" nhé.', 'error');
+  }
+  const ok = await customConfirm(
+    `Thu hồi khoản thưởng [ ${r.reward_name} ] (+${r.cost} điểm) đã trao cho ${r.username}?
+
+Người nhận chưa bấm nhận nên chưa có điểm nào được cộng.`,
+    'Thu hồi khoản trao', 'Thu hồi');
+  if (!ok) return;
+
+  showLoading(true);
+  const { data: rows, error } = await supabaseClient.from('reward_redemptions')
+    .update({ status: 'revoked', cancelled_at: new Date().toISOString(), handled_by: currentUser.username })
+    .eq('id', redemptionId).eq('status', 'pending_claim')
+    .select('id');
+  showLoading(false);
+  if (error) return showToast(rewardError(error), 'error');
+  if (!rows || rows.length === 0) { refreshRewardViews(); return showToast('Người nhận vừa bấm nhận, không thu hồi được nữa.', 'error'); }
+  showToast('Đã thu hồi khoản trao.', 'success');
+  refreshRewardViews();
 }
 
 async function resetAllPoints() {
@@ -2477,6 +2970,7 @@ async function resetAllPoints() {
     }
   }
   showLoading(false);
+  invalidateDataCaches();
   showToast('Boom! Đã reset điểm toàn hệ thống về 0.', 'mega-success');
   loadAdminData('users');
 }
@@ -2560,10 +3054,8 @@ async function saveBulkPenalty() {
   try {
     const usernames = Array.from(checkboxes).map(cb => cb.value);
     for (let username of usernames) {
-      const { data: uData } = await supabaseClient.from('users').select('points').eq('username', username).single();
-      if (uData) {
-        const newPoints = Math.max(0, uData.points - amount);
-        await supabaseClient.from('users').update({ points: newPoints }).eq('username', username);
+      const penRes = await adjustUserPoints(username, -amount);
+      if (!penRes.error) {
         // We use the selected date in the description since transactions.created_at is server-side
         const displayDate = new Date(dateStr).toLocaleDateString('vi-VN');
         await supabaseClient.from('transactions').insert([{ 
@@ -2575,6 +3067,7 @@ async function saveBulkPenalty() {
       }
     }
     showLoading(false);
+    invalidateDataCaches();
     showToast(`Đã ghi nhận phạt cho ${checkboxes.length} thành viên!`, 'mega-success');
     closePenaltyModal();
     loadAdminData(currentAdminType);

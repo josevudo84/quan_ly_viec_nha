@@ -108,10 +108,22 @@ Vào các ngày nghỉ lễ (do Admin thiết lập), hệ thống sẽ hiển t
 
 Khu vực **Phần thưởng** nằm ở cuối trang chủ:
 
-1. Xem danh sách phần thưởng và số điểm cần
+1. Xem danh sách phần thưởng và số điểm cần. Món sắp đổi được xếp lên đầu, món chưa đủ điểm có thanh tiến trình và dòng **"Còn thiếu N"**
 2. Nếu bạn đủ điểm, nút **"Đổi quà luôn"** sẽ sáng lên
-3. Bấm nút → Xác nhận → Điểm được trừ ngay lập tức
-4. Trạng thái đổi quà sẽ là **"Chờ trao"** → Admin xác nhận **"Đã trao"** → Bạn xác nhận **"Đã nhận"**
+3. Bấm nút → Hộp xác nhận hiện số điểm **trước → sau** → Điểm được trừ ngay
+4. Vòng đời đơn: **Chờ trao** → Admin bấm **"Đã trao quà"** → Bạn bấm **"Mình đã nhận quà"** → **Hoàn tất**
+5. **Đổi nhầm vẫn cứu được**: khi quà chưa trao, bạn tự bấm **"Huỷ & hoàn điểm"** để lấy lại đủ số điểm. Sau khi đã trao thì nhờ Admin huỷ giúp.
+
+Một số món có thể bị giới hạn:
+- **Tồn kho**: hiện **"Còn N"**, hết thì nút chuyển thành **"Tạm hết"**
+- **Giới hạn mỗi tuần**: đổi quá số lần cho phép sẽ bị từ chối kèm thông báo
+- **Tạm ngưng**: Admin tắt món đó, nó sẽ không hiện ở trang chủ
+
+### Nhận điểm thưởng 🎁
+
+Khi Admin trao cho bạn một gói thưởng điểm:
+- Trang chủ hiện banner **"Bạn có N phần thưởng cần xử lý"**, nút **Lịch sử** có chấm đỏ
+- Vào **Lịch sử → Lịch sử đổi quà**, bấm **"Nhận ngay"** là điểm vào tài khoản
 
 ---
 
@@ -148,15 +160,18 @@ Hiển thị toàn bộ lịch sử cộng/trừ điểm theo thứ tự mới n
 - 🟢 **Earn (Cộng điểm)**: Hoàn thành công việc được duyệt
 - 🔴 **Penalty (Trừ điểm)**: Bỏ lỡ việc bắt buộc hoặc bị Admin trừ
 - 🟡 **Spend (Tiêu điểm)**: Đổi phần thưởng
+- ↩️ **Refund (Hoàn điểm)**: Đơn đổi quà bị huỷ, điểm được trả lại
 
 ### Tab Lịch sử đổi quà
 Hiển thị tất cả các lần đổi phần thưởng với trạng thái:
 
 | Trạng thái | Ý nghĩa | Ai xử lý |
 |-------------|---------|-----------|
-| **Chờ trao** 🟡 | Đã đổi điểm, chờ Admin/Mod trao quà | Admin/Mod bấm "Xác nhận đã trao quà" |
-| **Đang giao** 🔵 | Admin đã xác nhận trao | Bạn (hoặc Admin/Mod) bấm "Xác nhận đã nhận quà" |
-| **Đã nhận** ✅ | Hoàn tất | — |
+| **Chờ trao** 🟡 | Đã trừ điểm, chờ Admin/Mod trao quà | Admin/Mod bấm **"Đã trao quà"**. Bạn hoặc Admin bấm **"Huỷ & hoàn điểm"** |
+| **Đã trao, chờ xác nhận** 🔵 | Admin đã giao quà tận tay | **Chính bạn** bấm **"Mình đã nhận quà"**. Admin chỉ **"Đóng đơn hộ"** khi bạn quên |
+| **Hoàn tất** ✅ | Xong đơn | — |
+| **Đã huỷ · hoàn điểm** ↩️ | Đơn bị huỷ, điểm đã trả lại đủ | — |
+| **Chờ bạn nhận** 🟣 | Admin trao điểm thưởng | Bạn bấm **"Nhận ngay"**. Admin **"Thu hồi"** được nếu trao nhầm |
 
 ---
 
@@ -175,9 +190,13 @@ Hiển thị danh sách công việc đang **chờ duyệt** (Pending Approval):
 
 ### Tab Trao quà 🎁
 
-Hiển thị danh sách phần thưởng đang chờ trao:
+Số đơn đang chờ hiện ngay trên ô **Trao quà** ở menu quản trị, và nút **Quản trị** có chấm đỏ. Tab gồm 3 phần:
 
-- Bấm **"Xác nhận đã trao quà"** khi đã giao quà cho thành viên
+1. **Trao thưởng điểm**: chọn gói thưởng → chọn thành viên → xác nhận. Trao xong vẫn **thu hồi** được khi người nhận chưa bấm nhận
+2. **Đã trao, chờ nhận**: các khoản điểm thưởng chưa được nhận, có nút **Thu hồi**
+3. **Đơn đổi quà đang mở**: mỗi đơn hiện số ngày đã chờ (đỏ nếu ≥ 3 ngày), kèm 2 nút:
+   - **"Đã trao quà"** khi đã giao quà tận tay
+   - **"Huỷ & hoàn điểm"** khi hết hàng hoặc không trao được — điểm trả lại đủ cho thành viên
 
 ### Tab Thành viên 👥
 
@@ -224,7 +243,13 @@ Thiết lập ngày nghỉ lễ:
 
 Quản lý danh mục phần thưởng:
 
-- **Thêm**: Bấm ➕ → Nhập tên phần thưởng, chọn icon, nhập số điểm cần → Lưu
+- **Thêm**: Bấm ➕ → Nhập tên phần thưởng, chọn icon, nhập số điểm → Lưu
+- **Loại phần thưởng**:
+  - Bỏ trống ô tick = **quà để đổi** (thành viên trả điểm để lấy)
+  - Tick **"Là gói tặng điểm"** = gói Admin trao để **cộng** điểm cho thành viên
+- **Tồn kho**: để trống là không giới hạn. Có số thì tự trừ khi có người đổi, tự cộng lại khi đơn bị huỷ
+- **Tối đa / tuần**: giới hạn số lần một người đổi món đó trong tuần
+- **Đang mở cho đổi**: bỏ tick để tạm ẩn món khỏi trang chủ mà không phải xoá
 - **Sửa/Xoá**: Tương tự các tab khác
 
 ### Nút Reset Điểm 🔄
@@ -304,7 +329,7 @@ Mỗi gia đình hiển thị dạng thẻ (card) bao gồm:
 Hệ thống tự động trừ điểm cho công việc bắt buộc (Daily/Weekly/Monthly có penalty > 0) vào cuối chu kỳ. Nếu bạn thấy bị trừ bất thường, hãy liên hệ Admin.
 
 ### 2. Tôi có thể hoàn tác sau khi đổi quà không?
-Không. Điểm sẽ bị trừ ngay lập tức khi bạn xác nhận đổi quà. Hãy cân nhắc kỹ trước khi đổi!
+Có. Điểm bị trừ ngay khi đổi, nhưng chừng nào quà **chưa được trao** thì bạn vào **Lịch sử → Lịch sử đổi quà** bấm **"Huỷ & hoàn điểm"** là lấy lại đủ. Nếu quà đã trao rồi thì nhờ Admin huỷ giúp.
 
 ### 3. Tại sao tôi không thấy tab Quản trị?
 Tab Quản trị chỉ hiển thị cho vai trò **Moderator**, **Admin**, và **Super Admin**. Nếu bạn là **User**, bạn sẽ không thấy tab này.
