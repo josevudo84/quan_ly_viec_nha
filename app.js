@@ -687,13 +687,28 @@ async function loadHomeData() {
   if (getFamilyId()) tasksQuery = tasksQuery.eq('family_id', getFamilyId());
   const { data: rawTasksData } = await tasksQuery;
   const tasksData = unpackTasks(rawTasksData);
-  const { data: logsData } = await supabaseClient.from('task_logs').select('*, users(name)').neq('status', 'Rejected');
 
   const today = new Date();
   const dayOfWeek = today.getDay(); const dayOfWeekAdjusted = dayOfWeek === 0 ? 7 : dayOfWeek;
   const weekOfMonth = Math.ceil(today.getDate() / 7);
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const weekStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-W${weekOfMonth}`;
+
+  // Trang chủ chỉ cần 2 nhóm log: log của kỳ hôm nay/tuần này, và mọi log còn
+  // chờ duyệt (để việc quá hạn vẫn nằm lại danh sách). Trước đây hàm này nạp
+  // TOÀN BỘ bảng task_logs - PostgREST cắt ở 1000 dòng và query không có
+  // ORDER BY, nên khi bảng vượt ngưỡng sẽ âm thầm mất log và báo sai "chưa làm".
+  const [{ data: periodLogs }, { data: pendingLogs }] = await Promise.all([
+    supabaseClient.from('task_logs').select('*, users(name)').neq('status', 'Rejected').in('period_id', [todayStr, weekStr]),
+    supabaseClient.from('task_logs').select('*, users(name)').eq('status', 'Pending Approval')
+  ]);
+  const logsData = [];
+  const seenLogIds = new Set();
+  [...(periodLogs || []), ...(pendingLogs || [])].forEach(l => {
+    if (seenLogIds.has(l.id)) return;
+    seenLogIds.add(l.id);
+    logsData.push(l);
+  });
 
   // Fetch schedules for today
   let scheduleData = [];
@@ -1689,10 +1704,16 @@ async function loadReportData(startDate, endDate) {
   // Always fetch all data over the period to calculate the true leaderboard for everyone.
   let transQuery = supabaseClient.from('transactions').select('*').gte('created_at', startDate.toISOString()).lte('created_at', endDate.toISOString());
   if (familyUsernames.length > 0) transQuery = transQuery.in('username', familyUsernames);
-  // Query task_logs WITHOUT created_at filter — the report iterates day-by-day
-  // and checks period_id, so we need ALL logs (including re-approved ones whose
-  // created_at may be outside the report window but period_id is inside it).
-  let logsQuery = supabaseClient.from('task_logs').select('*');
+  // Báo cáo duyệt theo period_id chứ không theo created_at, nên KHÔNG được chặn
+  // bằng đúng mép cửa sổ - kỳ tuần/tháng có thể bắt đầu trước startDate, và log
+  // duyệt/claim muộn có created_at sau endDate.
+  // Nhưng để hẳn không chặn thì query sẽ phình tới ngưỡng cắt 1000 dòng của
+  // PostgREST rồi âm thầm mất log. Nên chặn dưới với biên rộng 45 ngày: log luôn
+  // được nộp SAU khi kỳ bắt đầu, biên này thừa sức phủ mọi kỳ vắt qua mép.
+  // Không chặn trên, để log duyệt muộn vẫn vào.
+  const logFloor = new Date(startDate);
+  logFloor.setDate(logFloor.getDate() - 45);
+  let logsQuery = supabaseClient.from('task_logs').select('*').gte('created_at', logFloor.toISOString());
   if (familyUsernames.length > 0) logsQuery = logsQuery.in('username', familyUsernames);
 
   const [{ data: trans }, { data: logs }] = await Promise.all([transQuery, logsQuery]);
