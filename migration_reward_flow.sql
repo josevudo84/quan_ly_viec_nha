@@ -115,14 +115,7 @@ WHERE t.type = 'Earn' AND t.description LIKE 'Thưởng điểm: %'
   AND NOT EXISTS (SELECT 1 FROM reward_redemptions r
                   WHERE r.username = t.username AND r.created_at = t.created_at AND r.kind = 'grant');
 
--- 3g. DỌN DẸP - đọc kỹ trước khi chạy.
--- Các dòng Bonus_Pending KHÔNG phải giao dịch điểm thật (chưa cộng điểm cho ai),
--- chúng chỉ là cờ đánh dấu "đang chờ nhận" của hệ thống cũ. Thông tin đã được
--- chép sang reward_redemptions ở bước 3e. Nếu không xoá, mỗi khoản chờ nhận sẽ
--- hiện 2 lần trong app.
--- Muốn kiểm tra trước thì chạy dòng SELECT, thấy khớp với 3e rồi hãy chạy DELETE.
--- SELECT * FROM transactions WHERE type = 'Bonus_Pending';
-DELETE FROM transactions WHERE type = 'Bonus_Pending';
+-- (Bước dọn dẹp có xoá dữ liệu nằm ở PHẦN 5 cuối file - chạy riêng.)
 
 -- ------------------------------------------------------------
 -- PHẦN 4: Hàm RPC atomic
@@ -239,8 +232,26 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- ============================================================
--- XONG. Kiểm tra nhanh:
+-- Kiểm tra sau khi chạy PHẦN 1-4:
 --   SELECT kind, status, COUNT(*) FROM reward_redemptions GROUP BY 1,2 ORDER BY 1,2;
 --   SELECT routine_name FROM information_schema.routines
 --    WHERE routine_name IN ('redeem_reward','cancel_redemption','claim_point_grant');
 -- ============================================================
+
+-- ------------------------------------------------------------
+-- PHẦN 5: DỌN DẸP - CHẠY RIÊNG, CÓ XOÁ DỮ LIỆU. ĐỌC KỸ TRƯỚC KHI CHẠY.
+--
+-- Các dòng Bonus_Pending KHÔNG phải giao dịch điểm thật (chưa cộng điểm cho
+-- ai), chúng chỉ là cờ đánh dấu "đang chờ nhận" của hệ thống cũ. Thông tin đã
+-- được chép sang reward_redemptions ở bước 3e. Nếu không xoá, mỗi khoản chờ
+-- nhận sẽ hiện 2 lần trong app.
+--
+-- Chạy câu đếm dưới đây trước. Hai con số phải BẰNG NHAU thì mới được xoá.
+-- (Để trong 1 câu vì Supabase SQL Editor chỉ hiện kết quả của câu cuối cùng
+--  khi chạy nhiều câu một lượt.)
+-- ------------------------------------------------------------
+-- SELECT
+--   (SELECT COUNT(*) FROM transactions WHERE type = 'Bonus_Pending') AS bonus_pending_cu,
+--   (SELECT COUNT(*) FROM reward_redemptions WHERE kind = 'grant' AND status = 'pending_claim') AS da_chuyen;
+
+-- DELETE FROM transactions WHERE type = 'Bonus_Pending';
