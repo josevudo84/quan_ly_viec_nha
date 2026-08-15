@@ -3272,6 +3272,9 @@ async function copyTemplateTasks(targetFamilyId, targetFamilyName, silent = fals
   // Get tasks from my family
   const { data: myTasks } = await supabaseClient.from('tasks').select('*').eq('family_id', getFamilyId());
   if (myTasks && myTasks.length > 0) {
+    // Phải copy đủ mọi cột cấu hình. Thiếu cột nào là gia đình mới nhận bản
+    // sai lệch âm thầm: thiếu penalty_type thì việc cá nhân thành việc chung,
+    // thiếu is_condition thì việc điều kiện mất hiệu lực.
     const tasksToInsert = myTasks.map(t => ({
       task_name: t.task_name,
       icon: t.icon,
@@ -3280,6 +3283,8 @@ async function copyTemplateTasks(targetFamilyId, targetFamilyName, silent = fals
       points: t.points,
       penalty: t.penalty,
       calc_admin: t.calc_admin,
+      penalty_type: t.penalty_type,
+      is_condition: t.is_condition,
       family_id: targetFamilyId
     }));
     const { error } = await supabaseClient.from('tasks').insert(tasksToInsert);
@@ -3292,10 +3297,16 @@ async function copyTemplateTasks(targetFamilyId, targetFamilyName, silent = fals
   // Also copy rewards
   const { data: myRewards } = await supabaseClient.from('rewards').select('*').eq('family_id', getFamilyId());
   if (myRewards && myRewards.length > 0) {
+    // Thiếu is_point_reward là nguy hiểm nhất: gói "tặng điểm" sẽ biến thành
+    // quà để đổi ở gia đình mới, trẻ trả điểm để mua đúng cái đáng lẽ được cho.
     const rewardsToInsert = myRewards.map(r => ({
       reward_name: r.reward_name,
       icon: r.icon,
       cost: r.cost,
+      is_point_reward: r.is_point_reward,
+      stock: r.stock,
+      max_per_week: r.max_per_week,
+      active: r.active,
       family_id: targetFamilyId
     }));
     await supabaseClient.from('rewards').insert(rewardsToInsert);
@@ -3318,9 +3329,12 @@ async function deleteFamilyData(familyId) {
   const { data: famUsers } = await supabaseClient.from('users').select('username').eq('family_id', familyId);
   const usernames = (famUsers || []).map(u => u.username);
 
-  // Delete transactions of family users
+  // Delete transactions and reward orders of family users.
+  // Xoá theo username chứ không theo family_id: username là cột NOT NULL,
+  // còn family_id có thể rỗng ở dòng cũ chuyển từ hệ thống trước.
   if (usernames.length > 0) {
     await supabaseClient.from('transactions').delete().in('username', usernames);
+    await supabaseClient.from('reward_redemptions').delete().in('username', usernames);
   }
 
   // Get all tasks in this family
