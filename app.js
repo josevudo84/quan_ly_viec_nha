@@ -1627,19 +1627,30 @@ function renderRedemptionCard(r, opts = {}) {
   const waitedDays = Math.floor((Date.now() - new Date(r.created_at).getTime()) / 86400000);
   const openStatus = (r.status === 'pending_delivery' || r.status === 'delivered' || r.status === 'pending_claim');
   const waitBadge = (openStatus && waitedDays >= 3)
-    ? `<span class="text-[10px] font-bold text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded border border-red-500/20 ml-1">Đã chờ ${waitedDays} ngày</span>` : '';
+    ? `<span class="text-[10px] font-bold text-red-500 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20 whitespace-nowrap">Đã chờ ${waitedDays} ngày</span>` : '';
 
+  // Bố cục 3 tầng. Badge trạng thái nằm ở TẦNG RIÊNG chứ không chèn vào cuối
+  // dòng tên quà - tên dài bao nhiêu cũng không đẩy được badge vỡ dòng.
+  //   tầng 1: [icon] [tên quà, tối đa 2 dòng]            [số điểm]
+  //   tầng 2:        [badge trạng thái] [ngày] [đã chờ]
+  //   tầng 3:        [ghi chú] rồi [nút hành động] full-width
   return `
-        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm flex items-start justify-between gap-3 hover:border-amber-500/30 transition-all hover:shadow-md group mb-3">
-            <div class="w-12 h-12 shrink-0 rounded-2xl ${iconWrap} flex items-center justify-center text-2xl shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid ${iconName}"></i></div>
-            <div class="flex-1 min-w-0 ml-1">
-                ${showUser ? `<div class="text-[11px] font-bold text-muted mb-0.5"><i class="fa-solid fa-user text-[9px] mr-1"></i>${escHtml(userLabel)}</div>` : ''}
-                <div class="font-bold text-main text-sm break-words whitespace-normal leading-snug mb-1">${escHtml(r.reward_name)}<span class="text-[10px] px-1.5 py-0.5 rounded border font-bold ml-2 ${meta.cls}">${escHtml(meta.text)}</span></div>
-                ${r.user_note ? `<div class="text-[10px] text-muted italic bg-surface rounded px-2 py-1 mb-1 inline-block">Ghi chú: ${escHtml(r.user_note)}</div>` : ''}
-                <span class="text-[10px] text-muted flex items-center gap-1.5"><i class="fa-regular fa-clock"></i> ${dateStr}${waitBadge}</span>
-                ${actions.length ? `<div class="flex gap-2 mt-2">${actions.join('')}</div>` : ''}
+        <div class="bg-card border border-borderline rounded-2xl p-4 shadow-sm hover:border-amber-500/30 transition-all hover:shadow-md group mb-3">
+            <div class="flex items-start gap-3">
+                <div class="w-11 h-11 shrink-0 rounded-2xl ${iconWrap} flex items-center justify-center text-xl shadow-inner group-hover:scale-110 transition-transform"><i class="fa-solid ${iconName}"></i></div>
+                <div class="flex-1 min-w-0">
+                    ${showUser ? `<div class="text-[11px] font-bold text-muted mb-0.5 truncate"><i class="fa-solid fa-user text-[9px] mr-1"></i>${escHtml(userLabel)}</div>` : ''}
+                    <div class="font-bold text-main text-sm leading-snug break-words line-clamp-2" title="${escHtml(r.reward_name)}">${escHtml(r.reward_name)}</div>
+                </div>
+                <div class="font-black text-sm px-2.5 py-1 rounded-xl border shadow-inner shrink-0 ${amountWrap}">${amountText}</div>
             </div>
-            <div class="font-black text-sm px-3 py-1.5 rounded-xl border shadow-inner mt-1 self-start ${amountWrap}">${amountText}</div>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1.5 mt-2 pl-14">
+                <span class="text-[10px] px-2 py-0.5 rounded-full border font-bold whitespace-nowrap ${meta.cls}">${escHtml(meta.text)}</span>
+                <span class="text-[10px] text-muted flex items-center gap-1 whitespace-nowrap"><i class="fa-regular fa-clock"></i>${dateStr}</span>
+                ${waitBadge}
+            </div>
+            ${r.user_note ? `<div class="text-[10px] text-muted italic bg-surface rounded-lg px-2.5 py-1.5 mt-2 ml-14 break-words">Ghi chú: ${escHtml(r.user_note)}</div>` : ''}
+            ${actions.length ? `<div class="flex gap-2 mt-3">${actions.join('')}</div>` : ''}
         </div>`;
 }
 
