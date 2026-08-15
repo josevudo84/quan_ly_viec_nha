@@ -1300,7 +1300,15 @@ async function loadHistoryData(force = false) {
   window._lastRedemptions = redemptions || [];
 
   const logMap = {};
-  if (logs) logs.forEach(l => logMap[l.task_id + '_' + l.period_id + '_' + l.username] = l.status);
+  // Việc loại "trừ tất cả thành viên" chỉ cần BẤT KỲ AI làm là cả nhà thoát phạt.
+  // Phải tra bằng map task+kỳ, không được duyệt qua usersList: tài khoản role User
+  // không được nạp danh sách thành viên nên usersList rỗng, khiến mọi việc anh chị
+  // em đã làm vẫn bị hiện "Chưa xong" kèm nút Claim.
+  const anyLogMap = {};
+  if (logs) logs.forEach(l => {
+    logMap[l.task_id + '_' + l.period_id + '_' + l.username] = l.status;
+    anyLogMap[l.task_id + '_' + l.period_id] = true;
+  });
 
   let historyItems = [];
 
@@ -1418,10 +1426,7 @@ async function loadHistoryData(force = false) {
               let shouldAdd = true;
               
               // Handle 'all' penalty: if someone did it, no one is penalized
-              if (pType === 'all') {
-                const anyoneDidIt = usersList.some(u => logMap[t.id + '_' + pId + '_' + u.username]);
-                if (anyoneDidIt) shouldAdd = false;
-              }
+              if (pType === 'all' && anyLogMap[t.id + '_' + pId]) shouldAdd = false;
 
               if (shouldAdd && t.calc_admin === false) {
                 let userObj = usersList.find(u => u.username === uName) || currentUser;
