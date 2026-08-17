@@ -2810,7 +2810,12 @@ async function saveData(type, id) {
         active: document.getElementById('inp-ractive') ? document.getElementById('inp-ractive').checked : true,
         family_id: getFamilyId()
       };
-      if (id) { const res = await supabaseClient.from('rewards').update(data).eq('id', id); error = res.error; }
+      if (id) {
+        const res = await supabaseClient.from('rewards').update(data).eq('id', id); error = res.error;
+        // Đổi tên quà -> cập nhật luôn tên trong các đơn đổi quà cũ (theo reward_id)
+        // để thống kê "đã trao" và Lịch sử không bị tách ra dưới tên cũ.
+        if (!error) await supabaseClient.from('reward_redemptions').update({ reward_name: name }).eq('reward_id', id);
+      }
       else { const res = await supabaseClient.from('rewards').insert([data]); error = res.error; }
     } else if (type === 'violations') {
         const name = document.getElementById('inp-tname').value;
