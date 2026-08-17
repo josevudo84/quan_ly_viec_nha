@@ -2174,13 +2174,18 @@ async function loadAdminData(type) {
       let rewardsQuery = supabaseClient.from('rewards').select('*');
       if (getFamilyId()) rewardsQuery = rewardsQuery.eq('family_id', getFamilyId());
       const res = await rewardsQuery; data = res.data || [];
-      let rcQuery = supabaseClient.from('reward_redemptions').select('reward_id');
+      // Đếm số lần ĐÃ TRAO theo TÊN phần thưởng, không theo reward_id: các đơn cũ
+      // (migrate từ transactions, hoặc trước khi lưu reward_id) có reward_id = NULL,
+      // đếm theo id sẽ bỏ sót gần hết -> lệch với Lịch sử đổi quà (vốn hiện theo tên).
+      // Chỉ tính đơn thực sự đã tới tay: completed (quà đổi xong), claimed (điểm đã nhận),
+      // delivered (đã trao, chờ xác nhận). Bỏ cancelled/revoked (huỷ, thu hồi) và đơn còn chờ.
+      let rcQuery = supabaseClient.from('reward_redemptions').select('reward_name, status');
       if (getFamilyId()) rcQuery = rcQuery.eq('family_id', getFamilyId());
-      rcQuery = rcQuery.neq('status', 'cancelled');
+      rcQuery = rcQuery.in('status', ['completed', 'claimed', 'delivered']);
       const { data: rcData } = await rcQuery;
       const redeemCounts = {};
-      (rcData || []).forEach(r => { redeemCounts[r.reward_id] = (redeemCounts[r.reward_id] || 0) + 1; });
-      data = data.map(r => ({ ...r, _redeem_count: redeemCounts[r.id] || 0 }));
+      (rcData || []).forEach(r => { const k = (r.reward_name || '').trim(); redeemCounts[k] = (redeemCounts[k] || 0) + 1; });
+      data = data.map(r => ({ ...r, _redeem_count: redeemCounts[(r.reward_name || '').trim()] || 0 }));
     }
     else if (type === 'violations') {
       addBtn.onclick = () => openModal('violations');
