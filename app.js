@@ -1018,11 +1018,8 @@ function renderRewards(rewards) {
     return;
   }
   const myPoints = Number(currentUser.points) || 0;
-  // Món sắp đổi được đẩy lên trước để tạo động lực, món hết hàng xuống cuối.
+  // Món sắp đổi được đẩy lên trước để tạo động lực.
   const sorted = rewards.slice().sort((a, b) => {
-    const outA = a.stock !== null && a.stock !== undefined && a.stock <= 0;
-    const outB = b.stock !== null && b.stock !== undefined && b.stock <= 0;
-    if (outA !== outB) return outA ? 1 : -1;
     const affA = myPoints >= (Number(a.cost) || 0), affB = myPoints >= (Number(b.cost) || 0);
     if (affA !== affB) return affA ? -1 : 1;
     return (Number(a.cost) || 0) - (Number(b.cost) || 0);
@@ -1030,27 +1027,20 @@ function renderRewards(rewards) {
 
   container.innerHTML = sorted.map(r => {
     const cost = Number(r.cost) || 0;
-    const hasStock = r.stock !== null && r.stock !== undefined;
-    const outOfStock = hasStock && Number(r.stock) <= 0;
     const canAfford = myPoints >= cost;
-    const usable = canAfford && !outOfStock;
     const rIcon = r.icon || 'fa-solid fa-gift text-amber-500';
     const missing = cost - myPoints;
     const pct = cost > 0 ? Math.min(100, Math.round((myPoints / cost) * 100)) : 100;
 
-    let label = 'Đổi quà luôn';
-    if (outOfStock) label = 'Tạm hết';
-    else if (!canAfford) label = `Còn thiếu ${missing}`;
+    const label = canAfford ? 'Đổi quà luôn' : `Còn thiếu ${missing} điểm`;
 
     return `
-        <div class="bg-card border border-borderline rounded-2xl p-4 flex flex-col items-center text-center shadow-sm relative overflow-hidden transition-all hover:border-primary/50 ${outOfStock ? 'opacity-60' : ''}">
-            ${hasStock && !outOfStock ? `<span class="absolute top-2 right-2 text-[9px] font-bold text-muted bg-surface border border-borderline px-1.5 py-0.5 rounded">Còn ${r.stock}</span>` : ''}
-            ${outOfStock ? '<span class="absolute top-2 right-2 text-[9px] font-bold text-red-500 bg-red-500/10 border border-red-500/20 px-1.5 py-0.5 rounded">Hết</span>' : ''}
+        <div class="bg-card border border-borderline rounded-2xl p-4 flex flex-col items-center text-center shadow-sm relative overflow-hidden transition-all hover:border-primary/50">
             <div class="w-14 h-14 rounded-full bg-surface shadow-inner flex items-center justify-center mb-3 text-2xl text-primary"><i class="${escHtml(rIcon)}"></i></div>
             <h3 class="font-bold text-main text-sm mb-1 line-clamp-1">${escHtml(r.reward_name)}</h3>
             <div class="font-black text-sm mb-2 flex items-center gap-1 ${canAfford ? 'text-yellow-500' : 'text-muted'}"><i class="fa-solid fa-coins"></i> ${cost}</div>
             ${!canAfford ? `<div class="w-full h-1.5 rounded-full bg-surface overflow-hidden mb-2"><div class="h-full bg-gradient-to-r from-primary to-purple-500 rounded-full" style="width:${pct}%"></div></div>` : ''}
-            <button onclick="redeemReward('${escJsAttr(r.id)}', ${cost}, '${escJsAttr(r.reward_name)}')" class="w-full py-2.5 rounded-xl text-xs font-bold active-scale transition-all duration-300 ${usable ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105' : 'bg-surface text-muted opacity-50 cursor-not-allowed'}" ${!usable ? 'disabled' : ''}>${label}</button>
+            <button onclick="redeemReward('${escJsAttr(r.id)}', ${cost}, '${escJsAttr(r.reward_name)}')" class="w-full py-2.5 rounded-xl text-xs font-bold active-scale transition-all duration-300 ${canAfford ? 'bg-primary text-white shadow-lg shadow-primary/30 hover:scale-105' : 'bg-surface text-muted opacity-50 cursor-not-allowed'}" ${!canAfford ? 'disabled' : ''}>${label}</button>
         </div>`;
   }).join('');
 }
@@ -2495,7 +2485,7 @@ function handleFreqChange() {
   }
 }
 
-// Gói tặng điểm không có khái niệm tồn kho / giới hạn đổi -> ẩn cho đỡ rối,
+// Gói tặng điểm không có khái niệm giới hạn đổi -> ẩn cho đỡ rối,
 // và đổi nhãn ô số điểm cho đúng nghĩa (phải trả vs. được tặng).
 function toggleRewardKind() {
   const cb = document.getElementById('inp-is-point-reward');
@@ -2592,17 +2582,11 @@ function openModal(type, item = null) {
                 <label for="inp-is-point-reward" class="text-sm text-main font-medium cursor-pointer flex-1">Là gói <b>tặng điểm</b> (Admin trao, không phải quà để đổi)</label>
             </div>
             <div id="reward-stock-block" class="mt-4 space-y-3">
-                <div class="grid grid-cols-2 gap-3">
-                    <div>
-                        <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tồn kho</label>
-                        <input id="inp-rstock" type="number" min="0" placeholder="Không giới hạn" class="w-full bg-input border border-borderline rounded-xl px-3 py-3 text-main text-sm font-bold outline-none" value="${item && item.stock !== null && item.stock !== undefined ? item.stock : ''}">
-                    </div>
-                    <div>
-                        <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tối đa / tuần</label>
-                        <input id="inp-rmaxweek" type="number" min="1" placeholder="Không giới hạn" class="w-full bg-input border border-borderline rounded-xl px-3 py-3 text-main text-sm font-bold outline-none" value="${item && item.max_per_week !== null && item.max_per_week !== undefined ? item.max_per_week : ''}">
-                    </div>
+                <div>
+                    <label class="block text-[10px] text-muted mb-1 font-bold uppercase">Tối đa / tuần</label>
+                    <input id="inp-rmaxweek" type="number" min="1" placeholder="Không giới hạn" class="w-full bg-input border border-borderline rounded-xl px-3 py-3 text-main text-sm font-bold outline-none" value="${item && item.max_per_week !== null && item.max_per_week !== undefined ? item.max_per_week : ''}">
+                    <p class="text-[9px] text-muted opacity-70 mt-1">Để trống là không giới hạn số lần đổi mỗi tuần.</p>
                 </div>
-                <p class="text-[9px] text-muted opacity-70">Để trống là không giới hạn. Tồn kho tự trừ khi có người đổi và tự cộng lại khi đơn bị huỷ.</p>
                 <div class="flex items-center gap-2">
                     <input id="inp-ractive" type="checkbox" class="w-4 h-4 rounded text-primary bg-input border-borderline" ${!item || item.active !== false ? 'checked' : ''}>
                     <label for="inp-ractive" class="text-sm text-main font-medium cursor-pointer">Đang mở cho đổi</label>
@@ -2748,15 +2732,15 @@ async function saveData(type, id) {
       const cost = parseInt(document.getElementById('inp-rcost').value, 10);
       if (!name) { showLoading(false); return showToast('Nhập tên phần thưởng nhé!', 'error'); }
       if (!cost || cost <= 0) { showLoading(false); return showToast('Nhập số điểm lớn hơn 0!', 'error'); }
-      const rawStock = (document.getElementById('inp-rstock') || {}).value;
       const rawMax = (document.getElementById('inp-rmaxweek') || {}).value;
       const data = {
         reward_name: name,
         icon: document.getElementById('inp-icon').value,
         cost: cost,
         is_point_reward: is_point,
-        // Tồn kho và giới hạn tuần chỉ áp dụng cho quà để đổi.
-        stock: (is_point || rawStock === '' || rawStock === undefined) ? null : parseInt(rawStock, 10),
+        // Không dùng tồn kho: luôn để null để RPC redeem_reward bỏ qua kiểm tra OUT_OF_STOCK.
+        stock: null,
+        // Giới hạn tuần chỉ áp dụng cho quà để đổi.
         max_per_week: (is_point || rawMax === '' || rawMax === undefined) ? null : parseInt(rawMax, 10),
         active: document.getElementById('inp-ractive') ? document.getElementById('inp-ractive').checked : true,
         family_id: getFamilyId()
@@ -3320,7 +3304,7 @@ async function copyTemplateTasks(targetFamilyId, targetFamilyName, silent = fals
       icon: r.icon,
       cost: r.cost,
       is_point_reward: r.is_point_reward,
-      stock: r.stock,
+      stock: null,
       max_per_week: r.max_per_week,
       active: r.active,
       family_id: targetFamilyId
