@@ -3,6 +3,7 @@ const SUPABASE_ANON_KEY = 'sb_publishable_L6pJkJPwbOoEDDbNXhL_PQ_oq2nm-rC';
 const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 let currentUser = null;
+let currentTab = 'home';
 let currentAdminType = 'approvals';
 let currentReportTimeframe = 'this_week';
 let currentReportTab = 'tasks';
@@ -190,6 +191,64 @@ function invalidateDataCaches() {
   _historyCacheFilter = null;
   _reportDataCache = null;
   _reportCacheKey = null;
+}
+
+// Nút refresh trên header: bỏ hết cache trong bộ nhớ rồi đọc lại dữ liệu của
+// đúng tab đang xem. Không tải lại trang nên không bị giật và không mất vị trí.
+let _refreshInFlight = false;
+async function refreshCurrentView() {
+  if (_refreshInFlight) return;
+  _refreshInFlight = true;
+  const icon = document.getElementById('btn-refresh-icon');
+  if (icon) icon.classList.add('fa-spin');
+  try {
+    invalidateDataCaches();
+    _cachedAppStartDate = null;
+    await loadFamilySettings();
+    if (currentTab === 'home') await loadHomeData();
+    else if (currentTab === 'reports') await loadReport(currentReportTimeframe);
+    else if (currentTab === 'history') await loadHistoryData(true);
+    // Vào thẳng loadApprovals để giữ nguyên tab Chờ duyệt / Đã từ chối đang xem,
+    // vì loadAdminData('approvals') luôn ép filter về 'Pending Approval'.
+    else if (currentTab === 'admin') {
+      if (currentAdminType === 'approvals') await loadApprovals();
+      else await loadAdminData(currentAdminType);
+    }
+    else if (currentTab === 'schedule') await loadScheduleView();
+    await refreshUserPoints();
+    await refreshPendingBadges();
+    showToast('Đã cập nhật dữ liệu mới nhất!', 'success');
+  } catch (e) {
+    showToast('Không tải được dữ liệu mới. Kiểm tra mạng nhé!', 'error');
+  } finally {
+    // Hàm load nào ném lỗi giữa chừng sẽ bỏ quên lớp phủ loading -> tắt cho chắc.
+    showLoading(false);
+    if (icon) icon.classList.remove('fa-spin');
+    _refreshInFlight = false;
+  }
+}
+
+// Dùng khi app vẫn hiện bản cũ dù đã cập nhật: trình duyệt còn giữ app.js cũ
+// trong cache. Đăng nhập nằm ở localStorage nên xoá cache không làm đăng xuất.
+async function hardReloadApp() {
+  const ok = await customConfirm(
+    'Xoá cache và tải lại toàn bộ ứng dụng?\n\nBạn vẫn giữ nguyên đăng nhập, chỉ mất vài giây tải lại.',
+    'Tải lại ứng dụng', 'Tải lại');
+  if (!ok) return;
+  showLoading(true);
+  try {
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map(k => caches.delete(k)));
+    }
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+    }
+  } catch (e) { /* trình duyệt chặn Cache API thì vẫn còn tham số phá cache bên dưới */ }
+  const url = new URL(window.location.href);
+  url.searchParams.set('_', Date.now());
+  window.location.replace(url.toString());
 }
 
 function checkIfHoliday(dateObj, tasks) {
@@ -592,6 +651,7 @@ async function loadFamilySettings() {
 }
 
 function switchTab(tabId) {
+  currentTab = tabId;
   document.querySelectorAll('.view-section').forEach(el => el.classList.add('hidden'));
   var viewEl = document.getElementById('view-' + tabId);
   if (viewEl) viewEl.classList.remove('hidden');
@@ -1067,11 +1127,11 @@ function rewardError(error) {
   if (m.includes('REWARD_NOT_FOUND')) return 'Không tìm thấy phần thưởng này.';
   if (m.includes('NOT_REDEEMABLE')) return 'Đây là gói thưởng điểm, không đổi được.';
   if (m.includes('INVALID_COST')) return 'Phần thưởng này chưa có giá hợp lệ.';
-  if (m.includes('ALREADY_CLOSED')) return 'Đơn này đã hoàn tất hoặc đã huỷ trước đó.';
+  if (m.includes('ALREADY_CLOSED')) return 'Quà này đã hoàn tất hoặc đã huỷ trước đó.';
   if (m.includes('ALREADY_CLAIMED')) return 'Phần thưởng này đã được nhận trước đó rồi.';
   if (m.includes('NOT_YOURS')) return 'Đây là phần thưởng của người khác nha!';
   if (m.includes('USER_NOT_FOUND')) return 'Không tìm thấy thành viên.';
-  if (m.includes('NOT_FOUND')) return 'Không tìm thấy đơn này.';
+  if (m.includes('NOT_FOUND')) return 'Không tìm thấy phần thưởng này.';
   if (/does not exist|schema cache|relation .* does not exist/i.test(m)) {
     return 'Chưa chạy migration_reward_flow.sql trên Supabase!';
   }
@@ -1096,7 +1156,7 @@ async function redeemReward(rewardId, cost, name) {
     }
 
     const ok = await customConfirm(
-      `Đổi [ ${name} ] với giá ${cost} điểm?\n\nĐiểm của bạn: ${balance} → ${balance - cost}\nBạn vẫn có thể huỷ đơn để lấy lại điểm khi quà chưa được trao.`,
+      `Đổi [ ${name} ] với giá ${cost} điểm?\n\nĐiểm của bạn: ${balance} → ${balance - cost}\nBạn vẫn có thể huỷ để lấy lại điểm khi quà chưa được trao.`,
       'Xác nhận đổi quà', 'Đổi ngay');
     if (!ok) return;
 
@@ -1135,18 +1195,18 @@ function refreshRewardViews() {
 // Admin/Mod huỷ được mọi đơn chưa hoàn tất.
 async function cancelRedemption(redemptionId) {
   const { data: r } = await supabaseClient.from('reward_redemptions').select('*').eq('id', redemptionId).single();
-  if (!r) return showToast('Không tìm thấy đơn này!', 'error');
+  if (!r) return showToast('Không tìm thấy phần thưởng này!', 'error');
   if (r.status !== 'pending_delivery' && r.status !== 'delivered') {
     refreshRewardViews();
-    return showToast('Đơn này đã hoàn tất hoặc đã huỷ trước đó.', 'error');
+    return showToast('Quà này đã hoàn tất hoặc đã huỷ trước đó.', 'error');
   }
   const isOwner = r.username === currentUser.username;
-  if (!isOwner && !isAdminOrMod()) return showToast('Bạn không có quyền huỷ đơn này.', 'error');
+  if (!isOwner && !isAdminOrMod()) return showToast('Bạn không có quyền huỷ phần thưởng này.', 'error');
   if (r.status === 'delivered' && !isAdminOrMod()) return showToast('Quà đã được trao, nhờ Bố Mẹ huỷ giúp nhé.', 'error');
 
   const ok = await customConfirm(
-    `Huỷ đơn đổi [ ${r.reward_name} ]?\n\n${r.cost} điểm sẽ được hoàn lại cho ${isOwner ? 'bạn' : r.username}.`,
-    'Huỷ đơn & hoàn điểm', 'Huỷ đơn');
+    `Huỷ đổi quà [ ${r.reward_name} ]?\n\n${r.cost} điểm sẽ được hoàn lại cho ${isOwner ? 'bạn' : r.username}.`,
+    'Huỷ đổi quà & hoàn điểm', 'Huỷ đổi quà');
   if (!ok) return;
 
   showLoading(true);
@@ -1157,7 +1217,7 @@ async function cancelRedemption(redemptionId) {
   showLoading(false);
   if (error) { refreshRewardViews(); return showToast(rewardError(error), 'error'); }
 
-  showToast(`Đã huỷ đơn và hoàn ${r.cost} điểm.`, 'success');
+  showToast(`Đã huỷ và hoàn ${r.cost} điểm.`, 'success');
   if (isOwner) refreshUserPoints();
   refreshRewardViews();
 }
@@ -1175,7 +1235,7 @@ async function markRedemptionDelivered(redemptionId) {
   if (error) return showToast(rewardError(error), 'error');
   if (!rows || rows.length === 0) {
     refreshRewardViews();
-    return showToast('Đơn vừa được xử lý ở nơi khác, đã tải lại danh sách.', 'error');
+    return showToast('Quà này vừa được xử lý ở nơi khác, đã tải lại danh sách.', 'error');
   }
   showToast('Đã ghi nhận trao quà. Chờ bạn ấy xác nhận nhé!', 'success');
   refreshRewardViews();
@@ -1184,15 +1244,15 @@ async function markRedemptionDelivered(redemptionId) {
 // Chốt đơn. Đường chính là chính chủ bấm; Admin đóng hộ được nhưng phải xác nhận rõ.
 async function completeRedemption(redemptionId) {
   const { data: r } = await supabaseClient.from('reward_redemptions').select('*').eq('id', redemptionId).single();
-  if (!r) return showToast('Không tìm thấy đơn này!', 'error');
-  if (r.status !== 'delivered') { refreshRewardViews(); return showToast('Đơn này không ở trạng thái chờ xác nhận.', 'error'); }
+  if (!r) return showToast('Không tìm thấy phần thưởng này!', 'error');
+  if (r.status !== 'delivered') { refreshRewardViews(); return showToast('Quà này không ở trạng thái chờ xác nhận.', 'error'); }
 
   const isOwner = r.username === currentUser.username;
   if (!isOwner) {
     if (!isAdminOrMod()) return showToast('Chỉ người nhận mới xác nhận được bước này.', 'error');
     const ok = await customConfirm(
-      `Đóng đơn [ ${r.reward_name} ] thay cho ${r.username}?\n\nBình thường nên để chính bạn ấy bấm "Mình đã nhận quà" để hai bên cùng xác nhận.`,
-      'Đóng đơn thay người nhận', 'Đóng đơn');
+      `Xác nhận [ ${r.reward_name} ] đã trao xong thay cho ${r.username}?\n\nBình thường nên để chính bạn ấy bấm "Mình đã nhận quà" để hai bên cùng xác nhận.`,
+      'Xác nhận thay người nhận', 'Xác nhận');
     if (!ok) return;
   }
 
@@ -1205,9 +1265,9 @@ async function completeRedemption(redemptionId) {
   if (error) return showToast(rewardError(error), 'error');
   if (!rows || rows.length === 0) {
     refreshRewardViews();
-    return showToast('Đơn vừa được xử lý ở nơi khác, đã tải lại danh sách.', 'error');
+    return showToast('Quà này vừa được xử lý ở nơi khác, đã tải lại danh sách.', 'error');
   }
-  showToast('Xong đơn quà rồi, chúc mừng!', 'mega-success');
+  showToast('Nhận quà xong rồi, chúc mừng!', 'mega-success');
   if (isOwner && typeof confetti === 'function') confetti({ particleCount: 120, spread: 90, origin: { y: 0.6 } });
   refreshRewardViews();
 }
@@ -1607,7 +1667,7 @@ function renderRedemptionCard(r, opts = {}) {
   } else if (r.status === 'delivered') {
     // Chính chủ xác nhận là đường chính; Admin đóng hộ để đơn không treo mãi.
     if (isOwner) actions.push(btn('Mình đã nhận quà', 'completeRedemption', 'bg-success text-white shadow'));
-    else if (isAdminOrMod()) actions.push(btn('Đóng đơn hộ', 'completeRedemption', 'bg-surface text-main border border-borderline hover:border-success/40 hover:text-success transition-colors'));
+    else if (isAdminOrMod()) actions.push(btn('Xác nhận hộ', 'completeRedemption', 'bg-surface text-main border border-borderline hover:border-success/40 hover:text-success transition-colors'));
     if (isAdminOrMod()) actions.push(btn('Huỷ &amp; hoàn điểm', 'cancelRedemption', ghost));
   } else if (r.status === 'pending_claim') {
     if (isOwner) actions.push(btn('Nhận ngay', 'claimPointGrant', 'bg-primary text-white shadow'));
@@ -2219,9 +2279,9 @@ async function loadRewardApprovals() {
   }
 
   // Mục 3: đơn đổi quà đang mở
-  let ordersHtml = sectionDivider(`Đơn đổi quà đang mở (${orders.length})`);
+  let ordersHtml = sectionDivider(`Quà chờ trao (${orders.length})`);
   if (orders.length === 0) {
-    ordersHtml += '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl flex flex-col items-center gap-2"><i class="fa-solid fa-check-circle text-success text-2xl"></i>Tuyệt vời! Không có đơn nào đang chờ.</div>';
+    ordersHtml += '<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl flex flex-col items-center gap-2"><i class="fa-solid fa-check-circle text-success text-2xl"></i>Tuyệt vời! Không có quà nào đang chờ trao.</div>';
   } else {
     ordersHtml += orders.map(o => renderRedemptionCard(o, { showUser: true })).join('');
   }
