@@ -2124,6 +2124,13 @@ async function loadAdminData(type) {
       let rewardsQuery = supabaseClient.from('rewards').select('*');
       if (getFamilyId()) rewardsQuery = rewardsQuery.eq('family_id', getFamilyId());
       const res = await rewardsQuery; data = res.data || [];
+      let rcQuery = supabaseClient.from('reward_redemptions').select('reward_id');
+      if (getFamilyId()) rcQuery = rcQuery.eq('family_id', getFamilyId());
+      rcQuery = rcQuery.neq('status', 'cancelled');
+      const { data: rcData } = await rcQuery;
+      const redeemCounts = {};
+      (rcData || []).forEach(r => { redeemCounts[r.reward_id] = (redeemCounts[r.reward_id] || 0) + 1; });
+      data = data.map(r => ({ ...r, _redeem_count: redeemCounts[r.id] || 0 }));
     }
     else if (type === 'violations') {
       addBtn.onclick = () => openModal('violations');
@@ -2272,6 +2279,9 @@ async function loadApprovals() {
   }
   const container = document.getElementById('admin-list-container');
 
+  // Back button (loadApprovals can be called directly from tab switch, not through loadAdminData)
+  const backBtnHtml = `<button onclick="loadAdminData(null)" class="flex items-center gap-2 text-sm font-bold text-main mb-4 active-scale bg-card border border-borderline rounded-2xl px-4 py-3 w-full shadow-sm hover:border-primary/30 transition-all"><i class="fa-solid fa-arrow-left text-primary mr-1"></i> Quay lại menu quản trị</button>`;
+
   // Render toggle tabs
   const toggleHtml = `
     <div class="flex border-b border-borderline mb-4 w-full">
@@ -2284,9 +2294,9 @@ async function loadApprovals() {
     </div>
   `;
 
-  if (error) { container.innerHTML = toggleHtml; return showToast(error.message, 'error'); }
+  if (error) { container.innerHTML = backBtnHtml + toggleHtml; return showToast(error.message, 'error'); }
   if (!data || data.length === 0) {
-    container.innerHTML = toggleHtml + `<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl w-full">${currentApprovalFilter === 'Pending Approval' ? 'Quá mượt! Không có việc chờ duyệt.' : 'Không có việc nào bị từ chối.'}</div>`;
+    container.innerHTML = backBtnHtml + toggleHtml + `<div class="text-center text-muted py-8 text-sm bg-card border border-dashed border-borderline rounded-2xl w-full">${currentApprovalFilter === 'Pending Approval' ? 'Quá mượt! Không có việc chờ duyệt.' : 'Không có việc nào bị từ chối.'}</div>`;
     return;
   }
 
@@ -2326,7 +2336,7 @@ async function loadApprovals() {
             </div>
         </div>`;
   });
-  container.innerHTML = toggleHtml + itemsHtml.join('');
+  container.innerHTML = backBtnHtml + toggleHtml + itemsHtml.join('');
 }
 
 async function approveTask(logId, isApproved, username, points, taskName, calcAdmin = true) {
@@ -2422,19 +2432,14 @@ function renderAdminList(type, data, extraHtml = '') {
       let badge = item.is_point_reward
         ? ' <span class="bg-primary/10 text-primary px-1.5 rounded text-[10px] ml-1">🎁 Tặng điểm</span>'
         : ' <span class="bg-amber-500/10 text-amber-500 px-1.5 rounded text-[10px] ml-1">🛒 Quà đổi</span>';
-      if (!item.is_point_reward) {
-        if (item.active === false) badge += ' <span class="bg-surface text-muted px-1.5 rounded text-[10px] ml-1 border border-borderline">Tạm ngưng</span>';
-        if (item.stock !== null && item.stock !== undefined) {
-          badge += Number(item.stock) > 0
-            ? ` <span class="text-muted text-[10px] ml-1">· còn ${item.stock}</span>`
-            : ' <span class="bg-red-500/10 text-red-500 px-1.5 rounded text-[10px] ml-1">Hết hàng</span>';
-        }
-        if (item.max_per_week) badge += ` <span class="text-muted text-[10px] ml-1">· tối đa ${item.max_per_week}/tuần</span>`;
-      }
+      if (!item.is_point_reward && item.active === false) badge += ' <span class="bg-surface text-muted px-1.5 rounded text-[10px] ml-1 border border-borderline">Tạm ngưng</span>';
+      const rc = item._redeem_count || 0;
+      badge += rc > 0
+        ? ` <span class="text-muted text-[10px] ml-1">· đã trao ${rc} lần</span>`
+        : ' <span class="text-muted text-[10px] ml-1">· chưa trao lần nào</span>';
       const costLabel = item.is_point_reward ? `+${item.cost} pts` : `${item.cost} pts`;
       subtitle = `<span class="text-yellow-500 font-bold">${costLabel}</span>${badge}`;
       prefixHTML = `<div class="w-10 h-10 rounded-xl bg-surface flex items-center justify-center text-amber-500 shadow-inner text-base"><i class="${item.icon || 'fa-solid fa-gift'}"></i></div>`;
-      // Point reward granting is now done from 'Trao quà' tab, not here
     }
     else if (type === 'violations') {
       id = item.id; title = item.task_name;
